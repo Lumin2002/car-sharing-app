@@ -1,0 +1,102 @@
+/* 用户端：移动端窄屏布局 */
+body {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+.page {
+  padding-bottom: 24px;
+}
+
+.card-block {
+  background: #fff;
+  border-radius: 12px;
+  margin: 12px;
+  padding: 14px;
+  box-shadow: 0 1px 4px rgba(20, 30, 60, 0.05);
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  padding: 6px 0;
+  color: #606774;
+}
+
+.info-row > span:last-child {
+  color: #1f2430;
+}
+
+.login-brand {
+  text-align: center;
+  padding: 40px 0 20px;
+}
+
+.login-logo {
+  font-size: 52px;
+}
+
+.login-title {
+  font-size: 22px;
+  margin: 8px 0 4px;
+}
+
+.login-sub {
+  color: #8a8f99;
+  font-size: 13px;
+  margin: 0;
+}
+
+.login-links {
+  text-align: center;
+  margin-top: 16px;
+  color: #1989fa;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.car-cover {
+  height: 120px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #dfe7ff, #eef3ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  margin-bottom: 10px;
+}
+
+.car-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.guest-card {
+  text-align: center;
+  padding: 30px 16px;
+}
+
+.guest-avatar {
+  font-size: 44px;
+  margin-bottom: 8px;
+}
+
+.guest-title {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.guest-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+}

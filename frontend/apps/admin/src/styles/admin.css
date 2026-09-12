@@ -1,0 +1,87 @@
+/* 运维端：移动端 H5（窄屏居中，样式基本交给 Vant） */
+body {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+.page {
+  padding-bottom: 24px;
+}
+
+.card-block {
+  background: #fff;
+  border-radius: 12px;
+  margin: 12px;
+  padding: 14px;
+  box-shadow: 0 1px 4px rgba(20, 30, 60, 0.05);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 12px;
+}
+
+.stat-cell {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px 4px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(20, 30, 60, 0.05);
+}
+
+.stat-num {
+  font-size: 20px;
+  font-weight: 700;
+  color: #323233;
+}
+
+.stat-num.green {
+  color: #07c160;
+}
+
+.stat-num.red {
+  color: #ee0a24;
+}
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mt4 {
+  margin-top: 4px;
+}
+
+.mt6 {
+  margin-top: 6px;
+}
+
+.mt8 {
+  margin-top: 8px;
+}
+
+.mt10 {
+  margin-top: 10px;
+}
+
+.item-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.add-bar {
+  margin: 0 12px 10px;
+}
+
+.load-more {
+  text-align: center;
+  padding: 10px 0 20px;
+  color: #8a8f99;
+  font-size: 13px;
+}

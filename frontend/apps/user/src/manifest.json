@@ -1,0 +1,10 @@
+{
+  "name": "共享汽车",
+  "appid": "__UNI__CARSHARING",
+  "description": "共享汽车租赁前端",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "h5": {
+    "router": { "mode": "hash" }
+  }
+}

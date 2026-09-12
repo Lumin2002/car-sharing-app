@@ -1,0 +1,34 @@
+/* 两个端共用的基础样式（具体 UI 交给 Vant / Element Plus） */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #f5f6f8;
+  color: #1f2430;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.muted {
+  color: #8a8f99;
+  font-size: 13px;
+}
+
+.price {
+  color: #ff5b29;
+  font-weight: 700;
+}
+
+/* 地图上的「我的位置」蓝点：高德以 HTML 字符串插入，必须写在全局样式里 */
+.me-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2b6cff;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px rgba(43, 108, 255, 0.35), 0 2px 6px rgba(0, 0, 0, 0.25);
+}

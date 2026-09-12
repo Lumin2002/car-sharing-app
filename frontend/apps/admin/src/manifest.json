@@ -1,0 +1,10 @@
+{
+  "name": "共享汽车运维",
+  "appid": "__UNI__CARSHARING_ADMIN",
+  "description": "共享汽车 · 运维管理端",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "h5": {
+    "router": { "mode": "hash" }
+  }
+}

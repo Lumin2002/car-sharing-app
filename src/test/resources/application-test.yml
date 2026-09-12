@@ -1,0 +1,35 @@
+# =============================================================================
+#  集成测试配置
+#
+#  测试跑在真实 MySQL + Redis 上（本地服务或 docker compose 起的都行），
+#  本地没有 H2 / Testcontainers 依赖，也不打算为了测试再引一套内存库，
+#  真实数据库更能反映实际行为。
+#
+#  数据安全由测试类上的 @Transactional 保证：每个测试方法结束后整体回滚，
+#  不会污染开发库里的数据。
+# =============================================================================
+
+spring:
+  # 测试不消费 MQ，也就不依赖 RabbitMQ 必须在线；
+  # 定时任务在 IntegrationTestBase 里用 @MockBean 换成了空实现
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false
+
+# 上传目录指到 target 下，避免测试往项目根目录写文件
+app:
+  upload:
+    dir: target/test-uploads
+
+# 关掉 MyBatis-Plus 的 SQL 打印，测试输出干净一些
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+logging:
+  file:
+    name: target/test-logs/system-test.log
+  level:
+    root: WARN
+    cn.ff26710.carsharingapp: INFO

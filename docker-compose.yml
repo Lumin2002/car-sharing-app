@@ -1,0 +1,131 @@
+# =============================================================================
+#  共享汽车平台 —— 本地一键起中间件
+#
+#  常用命令：
+#    docker compose up -d                  # 只起 MySQL + Redis + RabbitMQ（推荐，应用本地跑）
+#    docker compose --profile full up -d   # 连后端应用一起构建启动
+#    docker compose down                   # 停止（保留数据卷）
+#    docker compose down -v                # 停止并删除数据卷（库会被清空重来）
+#    docker compose logs -f mysql          # 看某个服务日志
+#
+#  端口如与本机已有服务冲突，复制 .env.example 为 .env 改端口即可
+# =============================================================================
+
+name: car-sharing
+
+services:
+  # ---------------------------------------------------------------------------
+  # MySQL 8：首次启动会自动执行挂载进去的初始化脚本（建库建表 + 种子数据）
+  # 注意 sql/ 目录下的 migration_*.sql 是给「已有数据库升级」用的，
+  # 全新安装只需要 schema.sql（它已经是最终结构），所以这里不挂载 migration。
+  # ---------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: car-sharing-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 按文件名前缀顺序执行，schema 必须最先
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./sql/seed_admin_user.sql:/docker-entrypoint-initdb.d/02-seed-admin-user.sql:ro
+      - ./sql/seed_stores_guangzhou.sql:/docker-entrypoint-initdb.d/03-seed-stores.sql:ro
+      - ./sql/seed_cars_guangzhou.sql:/docker-entrypoint-initdb.d/04-seed-cars.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Redis 7：验证码、登录失败计数、JWT 黑名单
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: car-sharing-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ 3.13：逾期订单提醒的异步投递
+  # 管理台 http://localhost:${RABBITMQ_MGMT_PORT:-15672}  账号见下方环境变量
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: car-sharing-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-123456}
+      TZ: Asia/Shanghai
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # 后端应用：默认不启动，需要时加 --profile full
+  # 容器内通过服务名互联，用环境变量覆盖 application.yml 里的 127.0.0.1
+  # ---------------------------------------------------------------------------
+  app:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: car-sharing-app:latest
+    container_name: car-sharing-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/car_sharing_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-admin}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-123456}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      # 上传的文件放在数据卷里，容器重建不会丢
+      - uploads-data:/app/uploads
+
+volumes:
+  mysql-data:
+  redis-data:
+  rabbitmq-data:
+  uploads-data:

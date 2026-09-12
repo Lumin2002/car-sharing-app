@@ -1,0 +1,11 @@
+{
+  "name": "@cs/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "两个前端共用的请求封装、uni 兼容层、公共组件与工具",
+  "dependencies": {
+    "pinia": "^2.3.0",
+    "vue": "^3.5.13"
+  }
+}

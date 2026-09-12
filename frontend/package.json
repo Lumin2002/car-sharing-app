@@ -1,0 +1,17 @@
+{
+  "name": "car-sharing-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "共享汽车前端：npm workspaces 单仓多应用（用户端 + 运维管理端），共享一层公共代码",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:user": "npm run dev -w @cs/user-app",
+    "dev:admin": "npm run dev -w @cs/admin-app",
+    "build:user": "npm run build -w @cs/user-app",
+    "build:admin": "npm run build -w @cs/admin-app",
+    "build": "npm run build:user && npm run build:admin"
+  }
+}
