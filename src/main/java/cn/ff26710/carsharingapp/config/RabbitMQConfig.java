@@ -25,6 +25,11 @@ public class RabbitMQConfig {
     public static final String ROUTING_DEAD = "rental.dead";
     public static final String QUEUE_DEAD = "rental.dead.queue";
 
+    public static final String ROUTING_WX_PAY_PAYMENT = "rental.wxpay.payment";
+    public static final String QUEUE_WX_PAY_PAYMENT = "rental.wxpay.payment.queue";
+
+    public static final String ROUTING_WX_PAY_REFUND = "rental.wxpay.refund";
+    public static final String QUEUE_WX_PAY_REFUND = "rental.wxpay.refund.queue";
     @Bean
     public DirectExchange rentalExchange() {
         return ExchangeBuilder.directExchange(RENTAL_EXCHANGE)
@@ -39,10 +44,6 @@ public class RabbitMQConfig {
                 .build();
     }
 
-    /**
-     * 业务通知队列。
-     * 消费失败 basicNack(requeue=false) 的消息会被投到死信交换机，而不是直接丢掉。
-     */
     @Bean
     public Queue noticeQueue() {
         return QueueBuilder.durable(QUEUE_NOTICE)
@@ -59,14 +60,26 @@ public class RabbitMQConfig {
                 .build();
     }
 
-    /**
-     * 死信队列：不消费，留给人工排查。
-     * 设 7 天 TTL，避免长期堆积不清理。
-     */
     @Bean
     public Queue deadQueue() {
         return QueueBuilder.durable(QUEUE_DEAD)
                 .ttl(7 * 24 * 60 * 60 * 1000)
+                .build();
+    }
+
+    @Bean
+    public Queue wxPayPaymentQueue() {
+        return QueueBuilder.durable(QUEUE_WX_PAY_PAYMENT)
+                .deadLetterExchange(DEAD_EXCHANGE)
+                .deadLetterRoutingKey(ROUTING_DEAD)
+                .build();
+    }
+
+    @Bean
+    public Queue wxPayRefundQueue() {
+        return QueueBuilder.durable(QUEUE_WX_PAY_REFUND)
+                .deadLetterExchange(DEAD_EXCHANGE)
+                .deadLetterRoutingKey(ROUTING_DEAD)
                 .build();
     }
 
@@ -83,6 +96,16 @@ public class RabbitMQConfig {
     @Bean
     public Binding deadBinding(Queue deadQueue, DirectExchange deadExchange) {
         return BindingBuilder.bind(deadQueue).to(deadExchange).with(ROUTING_DEAD);
+    }
+
+    @Bean
+    public Binding wxPayPaymentBinding(Queue wxPayPaymentQueue, DirectExchange rentalExchange) {
+        return BindingBuilder.bind(wxPayPaymentQueue).to(rentalExchange).with(ROUTING_WX_PAY_PAYMENT);
+    }
+
+    @Bean
+    public Binding wxPayRefundBinding(Queue wxPayRefundQueue, DirectExchange rentalExchange) {
+        return BindingBuilder.bind(wxPayRefundQueue).to(rentalExchange).with(ROUTING_WX_PAY_REFUND);
     }
 
     @Bean

@@ -5,6 +5,7 @@ import cn.ff26710.carsharingapp.convert.PaymentConvert;
 import cn.ff26710.carsharingapp.dto.payment.PayOrderDTO;
 import cn.ff26710.carsharingapp.dto.payment.PaymentPageDTO;
 import cn.ff26710.carsharingapp.service.PaymentService;
+import cn.ff26710.carsharingapp.vo.PayResultVO;
 import cn.ff26710.carsharingapp.vo.PaymentVO;
 import cn.ff26710.carsharingapp.vo.ResultVO;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -24,13 +25,10 @@ public class PaymentController {
 
     private final PaymentService paymentService;
 
-    /** 支付订单（租金 + 押金冻结） */
-    @OperLogAnnotation(operType = "PAYMENT", operDesc = "订单支付")
-    @PostMapping("/pay")
-    public ResultVO<List<PaymentVO>> pay(@Valid @RequestBody PayOrderDTO dto) {
-        return ResultVO.success(paymentService.payOrder(dto).stream()
-                .map(PaymentConvert.INSTANCE::toVO)
-                .toList());
+    @OperLogAnnotation(operType = "PAYMENT", operDesc = "订单款项支付")
+    @PostMapping("/create")
+    public ResultVO<PayResultVO> create(@Valid @RequestBody PayOrderDTO dto) {
+        return ResultVO.success(paymentService.createPayment(dto));
     }
 
     /** 我的支付记录 */

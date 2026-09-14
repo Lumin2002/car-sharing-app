@@ -1,6 +1,7 @@
 package cn.ff26710.carsharingapp.service.impl;
 
 import cn.ff26710.carsharingapp.dto.rental.RentalCreateDTO;
+import cn.ff26710.carsharingapp.dto.rental.RentalPickUpDTO;
 import cn.ff26710.carsharingapp.dto.rental.RentalReturnDTO;
 import cn.ff26710.carsharingapp.entity.Car;
 import cn.ff26710.carsharingapp.entity.Payment;
@@ -24,6 +25,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.Set;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -43,14 +46,14 @@ import java.util.concurrent.ThreadLocalRandom;
 public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, RentalOrder> implements RentalOrderService {
 
     private final CarService carService;
-    private final RealnameAuthService realnameAuthService;
-    private final DriverLicenseService driverLicenseService;
     private final RentalSettlementService rentalSettlementService;
     private final PaymentService paymentService;
     private final RefundService refundService;
     private final BatchNotifyService batchNotifyOverdueOrders;
     private final RentalNoticeProducer rentalNoticeProducer;
     private final MessageService messageService;
+    private final DriverLicenseService driverLicenseService;
+    private final RealnameAuthService realnameAuthService;
 
     @Value("${app.rental.cancel-grace-minutes:10}")
     private long cancelGraceMinutes;
@@ -63,9 +66,6 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
     public Long createOrder(RentalCreateDTO dto) {
         User loginUser = currentUser();
         LocalDateTime now = LocalDateTime.now();
-        if (!realnameAuthService.isPassed(loginUser.getUserId()) || !driverLicenseService.isPassed(loginUser.getUserId())) {
-            throw new BusinessException("未做身份证认证或驾照认证，无法租用");
-        }
         if (!dto.getEndTime().isAfter(now)) {
             throw new BusinessException("预计还车时间必须晚于当前时间");
         }
@@ -75,16 +75,21 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
             throw new BusinessException("车辆不存在");
         }
 
-        boolean hasRenting = lambdaQuery()
+        List<RentalStatus> forbidStatusList = Arrays.asList(
+                RentalStatus.PENDING,
+                RentalStatus.RENTING,
+                RentalStatus.OVERDUE
+        );
+
+        boolean hasUnfinishedOrder = lambdaQuery()
                 .eq(RentalOrder::getUserId, loginUser.getUserId())
-                .eq(RentalOrder::getStatus, RentalStatus.RENTING)
+                .in(RentalOrder::getStatus, forbidStatusList)
                 .exists();
-        if (hasRenting) {
-            throw new BusinessException("您有未完成的租赁订单，请先还车");
+
+        if (hasUnfinishedOrder) {
+            throw new BusinessException("您有未完成的订单，无法创建新订单");
         }
 
-        // 先到先得的核心：用一次带条件的 UPDATE 原子抢占车辆，
-        // 只有 status 仍为 FREE 时才会更新成功，避免并发下被两个人同时租走。
         boolean claimed = carService.lambdaUpdate()
                 .eq(Car::getCarId, car.getCarId())
                 .eq(Car::getStatus, CarStatus.FREE)
@@ -114,7 +119,7 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
         order.setRentDays(rentDays);
         order.setRentAmount(rentAmount);
         order.setTotalAmount(rentAmount.add(deposit));
-        order.setStatus(RentalStatus.RENTING);
+        order.setStatus(RentalStatus.PENDING);
         order.setMileageBefore(car.getMileage());
         order.setRemark(dto.getRemark());
         order.setCreateTime(now);
@@ -131,13 +136,45 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void pickUpCar(Long orderId, RentalPickUpDTO dto) {
+        User loginuser = SecurityUtil.getLoginUser();
+        RentalOrder order = getById(orderId);
+        if (order == null) {
+            throw new BusinessException("订单不存在");
+        }
+        if (loginuser == null) {
+            throw new BusinessException(401,"未登录");
+        }
+        checkOwnerOrAdmin(order);
+        if (!RentalStatus.PENDING.equals(order.getStatus())) {
+            throw new BusinessException("该订单当前状态不可取车");
+        }
+        if (!driverLicenseService.isPassed(loginuser.getUserId())
+                || !realnameAuthService.isPassed(loginuser.getUserId())) {
+            throw new BusinessException("请完成驾照认证和实名认证后再取车");
+        }
+        if (!paymentService.isPaid(orderId, PayType.RENT_PAY)) {
+            throw new BusinessException("请支付订单租金后再取车");
+        }
+        if (order.getDeposit().compareTo(BigDecimal.ZERO) > 0
+                && !paymentService.isPaid(orderId, PayType.DEPOSIT_FROZEN)) {
+            throw new BusinessException("请支付订单押金后再取车");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        order.setStatus(RentalStatus.RENTING);
+        order.setUpdateTime(now);
+        updateById(order);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void returnCar(Long orderId, RentalReturnDTO dto) {
         RentalOrder order = getById(orderId);
         if (order == null) {
             throw new BusinessException("订单不存在");
         }
         checkOwnerOrAdmin(order);
-        if (!isActive(order.getStatus())) {
+        if (!RentalStatus.RENTING.equals(order.getStatus())) {
             throw new BusinessException("该订单当前状态不可还车");
         }
 
@@ -177,7 +214,7 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
             throw new BusinessException("订单不存在");
         }
         checkOwnerOrAdmin(order);
-        if (!isActive(order.getStatus())) {
+        if (!RentalStatus.PENDING.equals(order.getStatus())) {
             throw new BusinessException("该订单当前状态不可取消");
         }
 
@@ -254,15 +291,13 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
                             ? "取消订单：宽限期内取消，租金全额退还"
                             : "取消订单：已用" + billableDays + "天，扣除" + deduct
                                     + "元，退回" + refundAmount + "元";
-                    refundService.createRefund(payment.getId(), order.getOrderId(), order.getOrderNo(),
+                    refundService.createRefund(payment, order,
                             RefundType.RENT_REFUND, refundAmount, reason);
-                    paymentService.markRefunded(payment.getId());
                     totalRentRefund = totalRentRefund.add(refundAmount);
                 }
             } else if (payment.getPayType() == PayType.DEPOSIT_FROZEN) {
-                refundService.createRefund(payment.getId(), order.getOrderId(), order.getOrderNo(),
+                refundService.createRefund(payment, order,
                         RefundType.DEPOSIT_UNFREEZE, amount, "取消订单：押金解冻退回");
-                paymentService.markRefunded(payment.getId());
                 totalDepositUnfreeze = totalDepositUnfreeze.add(amount);
             }
         }
@@ -322,13 +357,6 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
         }
     }
 
-    /**
-     * 即将到期提醒。
-     *
-     * <p>与逾期扫描不同：这里不改订单状态，候选订单会一直留在筛选结果里，
-     * 所以不能像逾期那样「每轮都取第一页」——那会死循环。
-     * 这里改用按 orderId 的游标翻页（keyset 分页），并且跳过已经提醒过的订单。
-     */
     @Override
     public void notifySoonExpireOrderRecords() {
         LocalDateTime now = LocalDateTime.now();
@@ -379,10 +407,6 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
             throw new BusinessException(401, "未登录");
         }
         return loginUser;
-    }
-
-    private boolean isActive(RentalStatus status) {
-        return status == RentalStatus.RENTING || status == RentalStatus.OVERDUE;
     }
 
     private void checkOwnerOrAdmin(RentalOrder order) {

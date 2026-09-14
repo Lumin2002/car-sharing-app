@@ -1,6 +1,7 @@
 package cn.ff26710.carsharingapp.service;
 
 import cn.ff26710.carsharingapp.dto.rental.RentalCreateDTO;
+import cn.ff26710.carsharingapp.dto.rental.RentalPickUpDTO;
 import cn.ff26710.carsharingapp.dto.rental.RentalReturnDTO;
 import cn.ff26710.carsharingapp.entity.RentalOrder;
 import cn.ff26710.carsharingapp.entity.enums.RentalStatus;
@@ -11,6 +12,7 @@ import java.util.List;
 
 public interface RentalOrderService extends IService<RentalOrder> {
     Long createOrder(RentalCreateDTO dto);
+    void pickUpCar(Long orderId, RentalPickUpDTO dto);
     void returnCar(Long orderId, RentalReturnDTO dto);
     void cancelOrder(Long orderId, String reason);
     IPage<RentalOrder> pageMyOrders(long pageNum, long pageSize, RentalStatus status);

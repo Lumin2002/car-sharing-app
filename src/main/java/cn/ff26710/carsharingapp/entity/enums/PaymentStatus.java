@@ -9,6 +9,7 @@ public enum PaymentStatus {
     INIT("INIT", "待处理"),
     SUCCESS("SUCCESS", "成功"),
     FAIL("FAIL", "失败"),
+    EXPIRED("EXPIRED", "已过期"),
     REFUNDED("REFUNDED", "已退款");
 
     private final String code;

@@ -34,9 +34,6 @@ public class CarAttributesServiceImpl extends ServiceImpl<CarAttributesMapper, C
             attributes.setCreateTime(LocalDateTime.now());
             save(attributes);
         } else {
-            // 用显式 set 覆盖全部字段，而不是 updateById。
-            // updateById 会跳过 null 字段，导致「把某项属性清空」保存不生效 ——
-            // 而这里是整表单提交（PUT 语义就是把资源替换成提交的内容），null 也要写进去。
             lambdaUpdate()
                     .eq(CarAttributes::getCarId, carId)
                     .set(CarAttributes::getBatteryCapacity, dto.getBatteryCapacity())

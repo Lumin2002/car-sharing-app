@@ -291,7 +291,8 @@ CREATE TABLE IF NOT EXISTS `oper_log`
 -- 枚举落库为字符串：
 --   pay_type   : RENT_PAY / DEPOSIT_FROZEN
 --   pay_method : ALIPAY / WECHAT / BANK / CASH / BALANCE
---   status     : INIT / SUCCESS / FAIL / REFUNDED
+--   status     : INIT / SUCCESS / FAIL / EXPIRED / REFUNDED
+-- 唯一键：uk_payment_order_type (order_id, pay_type)，一个订单的一种款项只允许一条支付单
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `payment`
 (
@@ -303,8 +304,10 @@ CREATE TABLE IF NOT EXISTS `payment`
     `pay_type`       VARCHAR(20)   NOT NULL COMMENT '支付类型: RENT_PAY/DEPOSIT_FROZEN',
     `pay_method`     VARCHAR(20)            DEFAULT NULL COMMENT '支付方式: ALIPAY/WECHAT/BANK/CASH/BALANCE',
     `amount`         DECIMAL(10, 2) NOT NULL DEFAULT 0.00 COMMENT '支付金额',
-    `status`         VARCHAR(20)   NOT NULL DEFAULT 'INIT' COMMENT '状态: INIT/SUCCESS/FAIL/REFUNDED',
+    `status`         VARCHAR(20)   NOT NULL DEFAULT 'INIT' COMMENT '状态: INIT/SUCCESS/FAIL/EXPIRED/REFUNDED',
     `create_time`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `prepay_time`    DATETIME               DEFAULT NULL COMMENT '微信预支付下单时间',
     `callback_time`  DATETIME               DEFAULT NULL COMMENT '回调时间',
     `raw_callback`   TEXT                   COMMENT '第三方回调原文',
     PRIMARY KEY (`id`),

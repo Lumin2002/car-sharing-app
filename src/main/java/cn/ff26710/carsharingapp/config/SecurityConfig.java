@@ -86,6 +86,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/car/**",
                                 "/api/store/**").permitAll()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/pay/wx/payment-notify",
+                                "/api/pay/wx/refund-notify").permitAll()
                         // 上传后的静态资源需要匿名可读，否则 <img> 加载不出来
                         // （前缀取自 app.upload.url-prefix，改配置时这里会自动跟着变）
                         .requestMatchers(HttpMethod.GET,

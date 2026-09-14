@@ -1,19 +1,22 @@
 spring:
   application:
     name: car-sharing-app
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3306/car_sharing_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
-    username: root
-    password: 123456
-  redis:
-    host: 127.0.0.1
-    port: 6379
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3306/car_sharing_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:127.0.0.1}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   rabbitmq:
-    host: 127.0.0.1
-    port: 5672
-    username: admin
-    password: 123456
+    host: ${SPRING_RABBITMQ_HOST:127.0.0.1}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:admin}
+    password: ${SPRING_RABBITMQ_PASSWORD:123456}
     virtual-host: /
     publisher-confirm-type: correlated
     publisher-returns: true
@@ -27,31 +30,26 @@ spring:
       max-file-size: 5MB
       max-request-size: 10MB
 
-logging:
-  logback:
-    rollingpolicy:
-      max-file-size: 10MB
-      max-history: 15
-  file:
-    name: logs/system-log.log
-
 mybatis-plus:
   mapper-locations: classpath:mapper/**/*.xml
   type-aliases-package: cn.ff26710.carsharingapp.entity
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-
-knife4j:
-  enable: true
 
 jwt:
-  secret: car-sharing-app-2026-secret-key-32chars
-  expire-hours: 2
+  secret: ${JWT_SECRET:car-sharing-app-2026-secret-key-32chars}
+  expire-hours: ${JWT_EXPIRE_HOURS:2}
+
+snowflake:
+  worker-id: ${SNOWFLAKE_WORKER_ID:1}
+  data-center-id: ${SNOWFLAKE_DATA_CENTER_ID:0}
+
+wxpay:
+  enabled: ${WXPAY_ENABLED:false}
 
 app:
   cors:
-    allowed-origins: http://localhost:5173,http://localhost:5174,http://localhost:8080
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:8080}
   upload:
     dir: ./uploads                        # 本地存储根目录
     url-prefix: /uploads                  # 对外访问前缀
@@ -64,3 +62,9 @@ app:
     overtime-grace-minutes: 30      # 超时宽限（分钟，不收费）
     cancel-grace-minutes: 10        # 取消宽限（分钟，宽限内取消不扣费）
     expire-warn-hours: 6            # 到期前多少小时发「即将到期」提醒
+
+logging:
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 15

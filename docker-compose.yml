@@ -109,6 +109,8 @@ services:
         condition: service_healthy
     environment:
       TZ: Asia/Shanghai
+      # 容器化部署按生产配置启动
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/car_sharing_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
@@ -118,6 +120,14 @@ services:
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-admin}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-123456}
+      # 没有微信商户凭证时关掉（默认关，填了 WXPAY_* 变量后改成 true 即可启用）
+      WXPAY_ENABLED: ${WXPAY_ENABLED:-false}
+      WXPAY_V3_APP_ID: ${WXPAY_V3_APP_ID:-}
+      WXPAY_V3_MERCHANT_ID: ${WXPAY_V3_MERCHANT_ID:-}
+      WXPAY_V3_MERCHANT_SERIAL_NUMBER: ${WXPAY_V3_MERCHANT_SERIAL_NUMBER:-}
+      WXPAY_V3_API_V3_KEY: ${WXPAY_V3_API_V3_KEY:-}
+      WXPAY_V3_PRIVATE_KEY_PATH: ${WXPAY_V3_PRIVATE_KEY_PATH:-}
+      WXPAY_V3_NOTIFY_URL: ${WXPAY_V3_NOTIFY_URL:-}
     ports:
       - "${APP_PORT:-8080}:8080"
     volumes:

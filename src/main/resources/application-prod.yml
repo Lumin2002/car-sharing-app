@@ -1,0 +1,51 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      password: ${SPRING_DATA_REDIS_PASSWORD:}
+      database: ${SPRING_DATA_REDIS_DATABASE:0}
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME}
+    password: ${SPRING_RABBITMQ_PASSWORD}
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+knife4j:
+  enable: ${KNIFE4J_ENABLE:false}
+
+app:
+  cors:
+    allowed-origins: ${APP_CORS_ALLOWED_ORIGINS}
+
+logging:
+  file:
+    name: ${LOG_FILE:logs/system-log.log}
+  level:
+    root: WARN
+    cn.ff26710.carsharingapp: INFO
+
+wxpay:
+  enabled: ${WXPAY_ENABLED:false}
+  v3:
+    app-id: ${WXPAY_V3_APP_ID}
+    merchant-id: ${WXPAY_V3_MERCHANT_ID}
+    merchant-serial-number: ${WXPAY_V3_MERCHANT_SERIAL_NUMBER}
+    api-v3-key: ${WXPAY_V3_API_V3_KEY}
+    private-key-path: ${WXPAY_V3_PRIVATE_KEY_PATH}
+    payment-notify-url: ${WXPAY_V3_PAYMENT_NOTIFY_URL:}
+    refund-notify-url: ${WXPAY_V3_REFUND_NOTIFY_URL:}

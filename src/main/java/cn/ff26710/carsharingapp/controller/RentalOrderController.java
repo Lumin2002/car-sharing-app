@@ -4,6 +4,7 @@ import cn.ff26710.carsharingapp.annotation.OperLogAnnotation;
 import cn.ff26710.carsharingapp.convert.RentalOrderConvert;
 import cn.ff26710.carsharingapp.dto.rental.RentalCreateDTO;
 import cn.ff26710.carsharingapp.dto.rental.RentalPageDTO;
+import cn.ff26710.carsharingapp.dto.rental.RentalPickUpDTO;
 import cn.ff26710.carsharingapp.dto.rental.RentalReturnDTO;
 import cn.ff26710.carsharingapp.service.RentalOrderService;
 import cn.ff26710.carsharingapp.vo.ResultVO;
@@ -51,6 +52,13 @@ public class RentalOrderController {
     @PutMapping("/{id}/return")
     public ResultVO<Void> returnCar(@PathVariable Long id, @Valid @RequestBody(required = false) RentalReturnDTO dto) {
         rentalOrderService.returnCar(id, dto == null ? new RentalReturnDTO() : dto);
+        return ResultVO.success();
+    }
+
+    @OperLogAnnotation(operType = "RENTAL", operDesc = "办理取车")
+    @PutMapping("/{id}/pickup")
+    public ResultVO<Void> pickupCar(@PathVariable Long id, @Valid @RequestBody(required = false) RentalPickUpDTO dto) {
+        rentalOrderService.pickUpCar(id, dto == null ? new RentalPickUpDTO() : dto);
         return ResultVO.success();
     }
 

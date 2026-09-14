@@ -31,6 +31,8 @@ public class Payment {
     private PaymentStatus status;
 
     private LocalDateTime createTime;
+    private LocalDateTime updateTime;
+    private LocalDateTime prepayTime;
     private LocalDateTime callbackTime;
 
     private String rawCallback;

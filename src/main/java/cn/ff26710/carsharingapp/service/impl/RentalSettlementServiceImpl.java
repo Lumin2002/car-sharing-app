@@ -154,26 +154,18 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
                 .eq(Payment::getPayType, PayType.DEPOSIT_FROZEN)
                 .eq(Payment::getStatus, PaymentStatus.SUCCESS)
                 .one();
-        Long paymentId = depositPayment == null ? null : depositPayment.getId();
-
+        if (depositPayment == null) {
+            throw new BusinessException("未找到可退还的押金支付单");
+        }
         BigDecimal refundAmount = settlement.getDepositRefundAmount() == null
                 ? BigDecimal.ZERO : settlement.getDepositRefundAmount();
         if (refundAmount.compareTo(BigDecimal.ZERO) > 0) {
-            refundService.createRefund(paymentId, order.getOrderId(), order.getOrderNo(),
+            refundService.createRefund(depositPayment, order,
                     RefundType.DEPOSIT_UNFREEZE, refundAmount, "还车结算：押金退还");
         }
 
         BigDecimal deductAmount = settlement.getDepositDeductAmount() == null
                 ? BigDecimal.ZERO : settlement.getDepositDeductAmount();
-        if (deductAmount.compareTo(BigDecimal.ZERO) > 0) {
-            refundService.createRefund(paymentId, order.getOrderId(), order.getOrderNo(),
-                    RefundType.DEPOSIT_DEDUCT, deductAmount, "还车结算：押金扣罚");
-        }
-
-
-        if (paymentId != null) {
-            paymentService.markRefunded(paymentId);
-        }
 
         lambdaUpdate()
                 .eq(RentalSettlement::getId, settlementId)

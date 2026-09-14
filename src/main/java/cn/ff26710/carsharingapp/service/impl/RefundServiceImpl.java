@@ -1,22 +1,29 @@
 package cn.ff26710.carsharingapp.service.impl;
 
+import cn.ff26710.carsharingapp.entity.Payment;
 import cn.ff26710.carsharingapp.entity.Refund;
 import cn.ff26710.carsharingapp.entity.RentalOrder;
 import cn.ff26710.carsharingapp.entity.User;
-import cn.ff26710.carsharingapp.entity.enums.RefundStatus;
-import cn.ff26710.carsharingapp.entity.enums.RefundType;
-import cn.ff26710.carsharingapp.entity.enums.UserRole;
+import cn.ff26710.carsharingapp.entity.enums.*;
 import cn.ff26710.carsharingapp.exception.BusinessException;
 import cn.ff26710.carsharingapp.mapper.RefundMapper;
 import cn.ff26710.carsharingapp.mapper.RentalOrderMapper;
+import cn.ff26710.carsharingapp.mq.event.RentalNoticeEvent;
+import cn.ff26710.carsharingapp.service.PaymentService;
 import cn.ff26710.carsharingapp.service.RefundService;
+import cn.ff26710.carsharingapp.service.WxPayService;
+import cn.ff26710.carsharingapp.utils.AmountUtil;
 import cn.ff26710.carsharingapp.utils.SecurityUtil;
+import cn.ff26710.carsharingapp.utils.SnowflakeUtil;
+import cn.hutool.core.lang.Snowflake;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -29,24 +36,70 @@ import java.util.concurrent.ThreadLocalRandom;
 public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> implements RefundService {
 
     private final RentalOrderMapper rentalOrderMapper;
+    private final PaymentService paymentService;
+    private final WxPayService wxPayService;
+    private final SnowflakeUtil snowflakeUtil;
 
     @Override
-    public Refund createRefund(Long paymentId, Long orderId, String orderNo,
+    @Transactional(rollbackFor = Exception.class)
+    public Refund createRefund(Payment payment, RentalOrder order,
                                RefundType refundType, BigDecimal amount, String reason) {
+        if (payment == null) {
+            throw new BusinessException("支付表不能为null");
+        }
+        if (amount == null) {
+            throw new BusinessException("退款金额不能为空");
+        }
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException("退款金额不能为0或负数");
+        }
+        if (amount.compareTo(payment.getAmount()) > 0) {
+            throw new BusinessException("退款金额不能大于支付单的金额");
+        }
+        if (isRefunded(order.getOrderId(), refundType)) {
+            throw new BusinessException("该款项已退款，请勿重复发起退款请求");
+        }
+        Refund refund = getOne(Wrappers.lambdaQuery(Refund.class)
+                .eq(Refund::getOrderId, order.getOrderId())
+                .eq(Refund::getRefundType, refundType)
+                .last("FOR UPDATE"));
+        if (refund != null && RefundStatus.APPLY.equals(refund.getStatus())) {
+            return refund;
+        }
         LocalDateTime now = LocalDateTime.now();
-        Refund refund = new Refund();
-        refund.setPaymentId(paymentId);
-        refund.setOrderId(orderId);
-        refund.setOrderNo(orderNo);
-        refund.setRefundNo(generateNo());
+        refund = new Refund();
+        refund.setPaymentId(payment.getId());
+        refund.setOrderId(order.getOrderId());
+        refund.setOrderNo(order.getOrderNo());
+        refund.setRefundNo(snowflakeUtil.generateNo("REF"));
         refund.setRefundType(refundType);
-        refund.setAmount(amount == null ? BigDecimal.ZERO : amount);
-        refund.setStatus(RefundStatus.SUCCESS);
+        refund.setAmount(amount);
         refund.setReason(reason);
         refund.setCreateTime(now);
-        refund.setCallbackTime(now);
+        refund.setStatus(RefundStatus.APPLY);
         save(refund);
+        switch (payment.getPayMethod()) {
+            case BALANCE -> {
+                refund.setStatus(RefundStatus.SUCCESS);
+                refund.setCallbackTime(now);
+                refund.setRawCallback(null);
+                refund.setThirdRefundNo(null);
+                paymentService.markRefunded(refund.getPaymentId());
+            }
+            case WECHAT -> {
+                wxPayService.createRefundRequest(
+                        payment.getPaymentNo(),
+                        refund.getRefundNo(), reason, amount, payment.getAmount());
+            }
+            default -> throw new BusinessException("未知支付方式");
+        }
+        updateById(refund);
         return refund;
+    }
+
+    @Override
+    public Refund getRefundByRefundNo(String refundNo) {
+        return lambdaQuery().eq(Refund::getRefundNo,refundNo).one();
     }
 
     @Override
@@ -78,18 +131,40 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
         return page(new Page<>(pageNum, pageSize), wrapper);
     }
 
-    private void checkOwnerOrAdmin(RentalOrder order) {
-        User loginUser = SecurityUtil.getLoginUser();
-        if (loginUser.getRole() == UserRole.ADMIN) {
-            return;
-        }
-        if (!order.getUserId().equals(loginUser.getUserId())) {
-            throw new BusinessException(403, "无权查看该订单的退款记录");
-        }
+    @Override
+    public boolean isRefunded(Long orderId, RefundType refundType) {
+        return lambdaQuery()
+                .eq(Refund::getOrderId, orderId)
+                .eq(Refund::getRefundType, refundType)
+                .eq(Refund::getStatus, RefundStatus.SUCCESS)
+                .exists();
     }
 
-    private String generateNo() {
-        String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        return "REF" + time + ThreadLocalRandom.current().nextInt(1000, 10000);
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void handleWxPayCallback(String refundNo, String wxRefundNo,Long amountCent, String rawCallback) {
+        Refund refund = getRefundByRefundNo(refundNo);
+        if (refund == null) {
+            throw new BusinessException("退款单不存在");
+        }
+        if (amountCent == null || refund.getAmount().compareTo(AmountUtil.fenLongToYuan(amountCent)) != 0) {
+            throw new BusinessException("退款金额校验失败");
+        }
+        refund.setStatus(RefundStatus.SUCCESS);
+        refund.setThirdRefundNo(wxRefundNo);
+        refund.setCallbackTime(LocalDateTime.now());
+        refund.setRawCallback(rawCallback);
+        paymentService.markRefunded(refund.getPaymentId());
+        updateById(refund);
+    }
+
+    private void checkOwnerOrAdmin(RentalOrder order) {
+        User loginUser = SecurityUtil.getLoginUser();
+        if (loginUser != null && loginUser.getRole() == UserRole.ADMIN) {
+            return;
+        }
+        if (loginUser != null && !order.getUserId().equals(loginUser.getUserId())) {
+            throw new BusinessException(403, "无权查看该订单的退款记录");
+        }
     }
 }
