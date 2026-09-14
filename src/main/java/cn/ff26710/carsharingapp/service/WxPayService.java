@@ -60,11 +60,11 @@ public class WxPayService {
     }
 
     public Map<String,String> handlerCallback(WxPayCallbackDTO dto){
-        NotificationParser notificationParser = notificationParserProvider.getIfAvailable();
-        if (notificationParser == null) {
-            throw new BusinessException("微信支付未启用，请使用其它支付方式");
-        }
         try {
+            NotificationParser notificationParser = notificationParserProvider.getIfAvailable();
+            if (notificationParser == null) {
+                throw new BusinessException("微信支付未启用，请使用其它支付方式");
+            }
             RequestParam requestParam = new RequestParam.Builder()
                     .serialNumber(dto.getSerial())
                     .signature(dto.getSignature())
@@ -80,7 +80,7 @@ public class WxPayService {
                 Integer amountCent = transaction.getAmount().getTotal();
                 String plainJson = JSONUtil.toJsonStr(transaction);
 
-                log.info("微信回调 paymentNo:{},tradeState:{}", paymentNo, tradeState);
+                log.info("微信支付回调 paymentNo:{}, tradeState:{}", paymentNo, tradeState);
                 if (tradeState.equals("SUCCESS")) {
                     wxPayNoticeProducer.publishPaymentNotice(WxPayNoticeEvent.of(paymentNo, wxTradeNo, tradeState, amountCent, plainJson));
                 }
@@ -95,7 +95,9 @@ public class WxPayService {
                 if (refundStatus.equals("SUCCESS")) {
                     wxPayNoticeProducer.publishRefundNotice(WxPayRefundNoticeEvent.of(refundNo, wxRefundNo, amountCent, refundStatus, plainJson));
                 }
-            } else throw new BusinessException("未知回调类型");
+            } else {
+                throw new BusinessException("未知回调类型");
+            }
         } catch (Exception e) {
             log.error("微信回调处理异常", e);
             return Map.of("code", "FAIL", "message", "回调解析失败");
