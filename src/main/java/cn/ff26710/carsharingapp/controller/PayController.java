@@ -1,13 +1,12 @@
 package cn.ff26710.carsharingapp.controller;
 
 import cn.ff26710.carsharingapp.dto.pay.WxPayCallbackDTO;
-import cn.ff26710.carsharingapp.service.WxPayService;
+import cn.ff26710.carsharingapp.service.WeChatOAuthService;
+import cn.ff26710.carsharingapp.service.WeChatPayService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -15,12 +14,18 @@ import java.io.IOException;
 @RestController
 @RequestMapping("/api/pay")
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "wxpay", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "wechat", name = "enabled", havingValue = "true")
 public class PayController {
-    private final WxPayService wxPayService;
+    private final WeChatOAuthService weChatOAuthService;
+    private final WeChatPayService weChatPayService;
 
-    @PostMapping("/wx/payment-notify")
-    public Object wxPaymentNotify(HttpServletRequest request) throws IOException {
+    @GetMapping("/wechat/openid")
+    public String getOpenId(String code) {
+        return weChatOAuthService.getOpenId(code);
+    }
+
+    @PostMapping("/wechat/payment-notify")
+    public Object wechatPaymentNotify(HttpServletRequest request) throws IOException {
         String body = readBody(request);
         String serial = request.getHeader("Wechatpay-Serial");
         String signature = request.getHeader("Wechatpay-Signature");
@@ -29,11 +34,11 @@ public class PayController {
         String requestType = "Payment";
         WxPayCallbackDTO dto =
                 new WxPayCallbackDTO(body, serial, signature, timestamp, nonce, requestType);
-        return wxPayService.handlerCallback(dto);
+        return weChatPayService.handleCallback(dto);
     }
 
-    @PostMapping("/wx/refund-notify")
-    public Object wxRefundNotify(HttpServletRequest request) throws IOException {
+    @PostMapping("/wechat/refund-notify")
+    public Object wechatRefundNotify(HttpServletRequest request) throws IOException {
         String body = readBody(request);
         String serial = request.getHeader("Wechatpay-Serial");
         String signature = request.getHeader("Wechatpay-Signature");
@@ -42,7 +47,7 @@ public class PayController {
         String requestType = "Refund";
         WxPayCallbackDTO dto =
                 new WxPayCallbackDTO(body, serial, signature, timestamp, nonce, requestType);
-        return wxPayService.handlerCallback(dto);
+        return weChatPayService.handleCallback(dto);
     }
 
     private String readBody(HttpServletRequest request) throws IOException {

@@ -2,7 +2,7 @@
 
 共享汽车分时租赁平台的后端服务，覆盖「认证 -> 资质审核 -> 选车下单 -> 支付租金与押金 -> 取车 -> 还车计费结算 -> 取消退款 -> 逾期提醒」的完整业务闭环。
 
-支付模块已接入微信支付 APIv3 Native 下单、支付回调、退款申请与退款回调。未配置微信商户信息时，默认关闭微信支付，应用仍可正常启动。
+支付模块已接入微信支付 APIv3 JSAPI 下单、支付回调、退款申请与退款回调。未配置微信商户信息时，默认关闭微信支付，应用仍可正常启动。
 
 ## 技术栈
 
@@ -14,7 +14,7 @@
 | 缓存 | Redis 7 |
 | 消息队列 | RabbitMQ 3.13 |
 | 认证 | JWT |
-| 微信支付 | wechatpay-java，APIv3 Native 支付 + 退款 |
+| 微信支付 | wechatpay-java，APIv3 JSAPI 支付 + 退款 |
 | 对象映射 | MapStruct |
 | 工具 | Lombok、Hutool |
 | 接口文档 | knife4j |
@@ -35,7 +35,7 @@ src/main/java/cn/ff26710/carsharingapp/
 ├── mapper/           # MyBatis-Plus Mapper
 ├── mq/               # MQ 事件、生产者、消费者
 ├── security/         # 短信验证码认证
-├── service/          # 业务层，含 WxPayService
+├── service/          # 业务层，含 PaymentRecordService / WeChatPayService / WeChatOAuthService
 ├── tasks/            # 逾期扫描、令牌清理定时任务
 ├── utils/            # JWT / 脱敏 / IP / 金额换算 / 雪花 ID
 └── vo/               # 出参对象
@@ -79,29 +79,31 @@ npm run dev:admin
 
 ## 微信支付配置
 
-默认 `wxpay.enabled=false`，微信相关 Bean 和回调接口不会装配。
+默认 `wechat.enabled=false`（环境变量 `WECHAT_ENABLED`），微信相关 Bean 和回调接口不会装配。
 
 需要接入微信支付时设置：
 
 ```bash
-WXPAY_ENABLED=true
-WXPAY_V3_APP_ID=<应用 AppID>
-WXPAY_V3_MERCHANT_ID=<商户号>
-WXPAY_V3_MERCHANT_SERIAL_NUMBER=<商户 API 证书序列号>
-WXPAY_V3_API_V3_KEY=<APIv3 密钥>
-WXPAY_V3_PRIVATE_KEY_PATH=<商户私钥文件路径>
-WXPAY_V3_PAYMENT_NOTIFY_URL=<支付回调地址>
-WXPAY_V3_REFUND_NOTIFY_URL=<退款回调地址>
+WECHAT_ENABLED=true
+WECHAT_PAY_APP_ID=<公众号/应用 AppID>
+WECHAT_PAY_MERCHANT_ID=<商户号>
+WECHAT_PAY_MERCHANT_SERIAL_NUMBER=<商户 API 证书序列号>
+WECHAT_PAY_API_V3_KEY=<APIv3 密钥>
+WECHAT_PAY_PRIVATE_KEY_PATH=<商户私钥文件路径>
+WECHAT_PAY_PAYMENT_NOTIFY_URL=<支付回调地址>
+WECHAT_PAY_REFUND_NOTIFY_URL=<退款回调地址>
+WECHAT_OAUTH_SECRET=<公众号 AppSecret，用于 code 换 openid>
 ```
 
-对应配置项在 `application-prod.yml` 的 `wxpay` 段。
+对应配置项在 `application-prod.yml` 的 `wechat` 段。
 
-微信回调路径：
+微信接口路径：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/pay/wx/payment-notify` | 支付结果回调 |
-| POST | `/api/pay/wx/refund-notify` | 退款结果回调 |
+| GET | `/api/pay/wechat/openid` | 用网页授权 code 换 openid |
+| POST | `/api/pay/wechat/payment-notify` | 支付结果回调 |
+| POST | `/api/pay/wechat/refund-notify` | 退款结果回调 |
 
 ## 业务状态流转
 
@@ -176,7 +178,7 @@ GET 接口匿名可访问；管理操作需要 `ADMIN` 角色。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/payment/create` | 创建支付单。请求体需包含 `orderId`、`payType`、`payMethod` |
+| POST | `/api/payment/create` | 创建支付单。请求体需包含 `orderId`、`payType`、`payMethod`；微信支付还需 `code` |
 | GET | `/api/payment/my` | 我的支付记录 |
 | GET | `/api/payment/order/{orderId}` | 某订单的支付记录 |
 
@@ -187,8 +189,11 @@ GET 接口匿名可访问；管理操作需要 `ADMIN` 角色。
 
 `payMethod`：
 
-- `WECHAT`：微信 Native 支付，返回 `codeUrl`
+- `WECHAT`：微信 JSAPI 支付，返回 `payParamMap`（appId / timeStamp / nonceStr / package / signType / paySign），前端用它调起 `WeixinJSBridge` 或 `wx.chooseWXPay`
 - `BALANCE`：余额模拟支付
+
+微信支付流程：前端先走网页授权拿到 `code`，调用 `POST /api/payment/create`；
+后端用 `code` 换 `openid` 并完成 JSAPI 预下单，返回调起支付所需参数。
 
 ### 退款 `/api/refund`
 
@@ -244,7 +249,7 @@ mysql -uroot -p123456 < sql/seed_car_attributes.sql
 ## 已知限制
 
 - 未配置微信商户信息时，微信支付默认关闭；开启后才会装配微信相关 Bean。
-- 押金冻结目前实现为普通微信 Native 支付，不是真正意义上的微信预授权冻结。
+- 押金冻结目前实现为普通微信支付，不是真正意义上的微信预授权冻结。
 - 文件上传存储在本地磁盘，生产环境建议替换为对象存储。
 - 短信登录、操作日志消费等部分链路仍需要补充测试覆盖。
 - 微信退款已接入退款 API 和回调，但外部退款成功、本地写库失败时仍需对账补偿。

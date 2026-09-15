@@ -85,7 +85,7 @@ class NoticePublishIntegrationTest extends IntegrationTestBase {
         Store store = createStore();
         Car car = createFreeCar(store.getStoreId(), "200.00", "1000.00");
         var user = createVerifiedUser();
-        Long orderId = createPaidOrder(user, car);
+        Long orderId = createRentingOrder(user, car);
         String userToken = login(user.phone(), user.password());
 
         // 还车：超出 50km => 扣罚 75，退还 925

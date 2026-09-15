@@ -315,24 +315,59 @@ public abstract class IntegrationTestBase {
         return car;
     }
 
-    /** 造一个已支付、处于 RENTING 的订单，返回订单 id */
+    /** 造一个已支付、待取车（PENDING）的订单，返回订单 id */
     protected Long createPaidOrder(UserWithPassword owner, Car car) throws Exception {
         return createPaidOrder(owner, car, LocalDateTime.now().plusDays(1));
     }
 
-    /** 造一个已支付、处于 RENTING 的订单，可指定预计还车时间（决定租期天数与租金） */
+    /** 造一个已支付、待取车（PENDING）的订单，可指定预计还车时间（决定租期天数与租金） */
     protected Long createPaidOrder(UserWithPassword owner, Car car, LocalDateTime endTime) throws Exception {
         String token = login(owner.phone(), owner.password());
         Long orderId = createOrder(owner, car, endTime, token);
 
-        JsonNode paid = postJson("/api/payment/pay", new java.util.HashMap<>() {{
+        payOrder(orderId, "RENT_PAY", token);
+        payOrder(orderId, "DEPOSIT_FROZEN", token);
+        return orderId;
+    }
+
+    /** 造一个已支付并已取车（RENTING）的订单，返回订单 id */
+    protected Long createRentingOrder(UserWithPassword owner, Car car) throws Exception {
+        return createRentingOrder(owner, car, LocalDateTime.now().plusDays(1));
+    }
+
+    /** 造一个已支付并已取车（RENTING）的订单，可指定预计还车时间 */
+    protected Long createRentingOrder(UserWithPassword owner, Car car, LocalDateTime endTime) throws Exception {
+        String token = login(owner.phone(), owner.password());
+        Long orderId = createOrder(owner, car, endTime, token);
+
+        payOrder(orderId, "RENT_PAY", token);
+        payOrder(orderId, "DEPOSIT_FROZEN", token);
+        pickup(orderId, token);
+        return orderId;
+    }
+
+    /** 余额支付指定款项；测试不接微信，统一走 BALANCE */
+    protected JsonNode payOrder(Long orderId, String payType, String token) throws Exception {
+        JsonNode paid = postJson("/api/payment/create", new java.util.HashMap<>() {{
             put("orderId", orderId);
-            put("payMethod", "ALIPAY");
+            put("payType", payType);
+            put("payMethod", "BALANCE");
         }}, token);
         if (paid.path("code").asInt() != 200) {
             throw new IllegalStateException("支付失败: " + paid);
         }
-        return orderId;
+        return paid;
+    }
+
+    /** 取车：把订单从 PENDING 推到 RENTING */
+    protected void pickup(Long orderId, String token) throws Exception {
+        JsonNode picked = toJson(perform(withToken(
+                put("/api/rental/" + orderId + "/pickup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"), token)));
+        if (picked.path("code").asInt() != 200) {
+            throw new IllegalStateException("取车失败: " + picked);
+        }
     }
 
     /** 只下单，不支付 */

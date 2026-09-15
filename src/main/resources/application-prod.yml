@@ -39,13 +39,15 @@ logging:
     root: WARN
     cn.ff26710.carsharingapp: INFO
 
-wxpay:
-  enabled: ${WXPAY_ENABLED:false}
-  v3:
-    app-id: ${WXPAY_V3_APP_ID}
-    merchant-id: ${WXPAY_V3_MERCHANT_ID}
-    merchant-serial-number: ${WXPAY_V3_MERCHANT_SERIAL_NUMBER}
-    api-v3-key: ${WXPAY_V3_API_V3_KEY}
-    private-key-path: ${WXPAY_V3_PRIVATE_KEY_PATH}
-    payment-notify-url: ${WXPAY_V3_PAYMENT_NOTIFY_URL:}
-    refund-notify-url: ${WXPAY_V3_REFUND_NOTIFY_URL:}
+wechat:
+  enabled: ${WECHAT_ENABLED:false}
+  pay:
+    app-id: ${WECHAT_PAY_APP_ID:}
+    merchant-id: ${WECHAT_PAY_MERCHANT_ID:}
+    merchant-serial-number: ${WECHAT_PAY_MERCHANT_SERIAL_NUMBER:}
+    api-v3-key: ${WECHAT_PAY_API_V3_KEY:}
+    private-key-path: ${WECHAT_PAY_PRIVATE_KEY_PATH:}
+    payment-notify-url: ${WECHAT_PAY_PAYMENT_NOTIFY_URL:}
+    refund-notify-url: ${WECHAT_PAY_REFUND_NOTIFY_URL:}
+  oauth:
+    app-secret: ${WECHAT_OAUTH_SECRET:}

@@ -40,7 +40,8 @@ class RentalFlowIntegrationTest extends IntegrationTestBase {
         assertThat(claimed.getCurrentTenantId()).isEqualTo(user.user().getUserId());
 
         RentalOrder order = rentalOrderMapper.selectById(orderId);
-        assertThat(order.getStatus().name()).isEqualTo("RENTING");
+        // 下单只占用车辆，取车后才流转到 RENTING
+        assertThat(order.getStatus().name()).isEqualTo("PENDING");
         assertThat(order.getRentDays()).isEqualTo(1);
         assertThat(order.getRentAmount()).isEqualByComparingTo("200.00");
         assertThat(order.getTotalAmount()).isEqualByComparingTo("1200.00");
@@ -84,27 +85,30 @@ class RentalFlowIntegrationTest extends IntegrationTestBase {
         }}, token);
 
         assertThat(res.path("code").asInt()).isEqualTo(400);
-        assertThat(res.path("message").asText()).contains("未完成的租赁订单");
+        assertThat(res.path("message").asText()).contains("未完成");
     }
 
     @Test
-    @DisplayName("未通过实名或驾照认证不能下单")
-    void unverifiedUserCannotRent() throws Exception {
+    @DisplayName("未通过实名或驾照认证不能取车")
+    void unverifiedUserCannotPickUp() throws Exception {
         Store store = createStore();
         Car car = createFreeCar(store.getStoreId(), "200.00", "1000.00");
         // 只建账号，不写认证记录
-        var plain = createVerifiedUser();
         var unverified = createAdmin(); // 管理员账号同样没有实名认证记录
 
         String token = login(unverified.phone(), unverified.password());
-        JsonNode res = postJson("/api/rental", new HashMap<>() {{
-            put("carId", car.getCarId());
-            put("endTime", LocalDateTime.now().plusDays(1).withNano(0).toString());
-        }}, token);
+        Long orderId = createOrder(unverified, car, LocalDateTime.now().plusDays(1), token);
+        payOrder(orderId, "RENT_PAY", token);
+        payOrder(orderId, "DEPOSIT_FROZEN", token);
+
+        JsonNode res = toJson(perform(withToken(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .put("/api/rental/" + orderId + "/pickup")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{}"), token)));
 
         assertThat(res.path("code").asInt()).isEqualTo(400);
-        assertThat(res.path("message").asText()).contains("无法租用");
-        assertThat(plain.user().getUserId()).isNotNull();
+        assertThat(res.path("message").asText()).contains("实名认证");
     }
 
     @Test
@@ -139,9 +143,10 @@ class RentalFlowIntegrationTest extends IntegrationTestBase {
         Long orderId = createPaidOrder(user, car);
         String token = login(user.phone(), user.password());
 
-        JsonNode res = postJson("/api/payment/pay", new HashMap<>() {{
+        JsonNode res = postJson("/api/payment/create", new HashMap<>() {{
             put("orderId", orderId);
-            put("payMethod", "ALIPAY");
+            put("payType", "RENT_PAY");
+            put("payMethod", "BALANCE");
         }}, token);
 
         assertThat(res.path("code").asInt()).isEqualTo(400);
@@ -154,7 +159,7 @@ class RentalFlowIntegrationTest extends IntegrationTestBase {
         Store store = createStore();
         Car car = createFreeCar(store.getStoreId(), "200.00", "1000.00");
         var user = createVerifiedUser();
-        Long orderId = createPaidOrder(user, car);
+        Long orderId = createRentingOrder(user, car);
         String token = login(user.phone(), user.password());
 
         // 取车 10000，还车 10250：超出 50km（每日免费 200km），单价 1.5 元/km => 75 元
@@ -190,7 +195,7 @@ class RentalFlowIntegrationTest extends IntegrationTestBase {
         Car car = createFreeCar(store.getStoreId(), "200.00", "1000.00");
         var user = createVerifiedUser();
         // 租 3 天但当天还车
-        Long orderId = createPaidOrder(user, car, LocalDateTime.now().plusDays(3));
+        Long orderId = createRentingOrder(user, car, LocalDateTime.now().plusDays(3));
         String token = login(user.phone(), user.password());
 
         toJson(perform(withToken(
@@ -216,7 +221,7 @@ class RentalFlowIntegrationTest extends IntegrationTestBase {
         Store store = createStore();
         Car car = createFreeCar(store.getStoreId(), "200.00", "1000.00");
         var user = createVerifiedUser();
-        Long orderId = createPaidOrder(user, car);
+        Long orderId = createRentingOrder(user, car);
         String userToken = login(user.phone(), user.password());
 
         toJson(perform(withToken(
@@ -245,15 +250,12 @@ class RentalFlowIntegrationTest extends IntegrationTestBase {
         assertThat(confirmed.path("code").asInt()).isEqualTo(200);
         assertThat(confirmed.path("data").path("status").asText()).isEqualTo("FINISHED");
 
-        // 生成两条退款：押金退还 925 + 押金扣罚 75
+        // 只对待退还的押金发起退款：925（75 是扣罚，留在平台，不产生退款单）
         JsonNode refunds = getJson("/api/refund/order/" + orderId, adminToken);
-        assertThat(refunds.path("data")).hasSize(2);
+        assertThat(refunds.path("data")).hasSize(1);
         JsonNode unfreeze = findByField(refunds.path("data"), "refundType", "DEPOSIT_UNFREEZE");
-        JsonNode deduct = findByField(refunds.path("data"), "refundType", "DEPOSIT_DEDUCT");
         assertThat(unfreeze).isNotNull();
-        assertThat(deduct).isNotNull();
         assertThat(unfreeze.path("amount").asDouble()).isEqualTo(925.00);
-        assertThat(deduct.path("amount").asDouble()).isEqualTo(75.00);
         assertThat(unfreeze.has("rawCallback")).isFalse();
 
         // 押金支付记录应标记为已退款

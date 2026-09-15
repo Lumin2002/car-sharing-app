@@ -8,14 +8,12 @@ import cn.ff26710.carsharingapp.entity.enums.*;
 import cn.ff26710.carsharingapp.exception.BusinessException;
 import cn.ff26710.carsharingapp.mapper.RefundMapper;
 import cn.ff26710.carsharingapp.mapper.RentalOrderMapper;
-import cn.ff26710.carsharingapp.mq.event.RentalNoticeEvent;
 import cn.ff26710.carsharingapp.service.PaymentService;
 import cn.ff26710.carsharingapp.service.RefundService;
-import cn.ff26710.carsharingapp.service.WxPayService;
+import cn.ff26710.carsharingapp.service.WeChatPayService;
 import cn.ff26710.carsharingapp.utils.AmountUtil;
 import cn.ff26710.carsharingapp.utils.SecurityUtil;
 import cn.ff26710.carsharingapp.utils.SnowflakeUtil;
-import cn.hutool.core.lang.Snowflake;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -37,7 +35,7 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
 
     private final RentalOrderMapper rentalOrderMapper;
     private final PaymentService paymentService;
-    private final WxPayService wxPayService;
+    private final WeChatPayService weChatPayService;
     private final SnowflakeUtil snowflakeUtil;
 
     @Override
@@ -87,7 +85,7 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
                 paymentService.markRefunded(refund.getPaymentId());
             }
             case WECHAT -> {
-                wxPayService.createRefundRequest(
+                weChatPayService.refund(
                         payment.getPaymentNo(),
                         refund.getRefundNo(), reason, amount, payment.getAmount());
             }

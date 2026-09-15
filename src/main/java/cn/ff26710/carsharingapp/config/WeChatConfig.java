@@ -2,7 +2,7 @@ package cn.ff26710.carsharingapp.config;
 
 import com.wechat.pay.java.core.RSAAutoCertificateConfig;
 import com.wechat.pay.java.core.notification.NotificationParser;
-import com.wechat.pay.java.service.payments.nativepay.NativePayService;
+import com.wechat.pay.java.service.payments.jsapi.JsapiService;
 import com.wechat.pay.java.service.refund.RefundService;
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,30 +12,33 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 @Getter
-public class WxPayV3Config {
-    @Value("${wxpay.v3.app-id:}")
+public class WeChatConfig {
+    @Value("${wechat.pay.app-id:}")
     private String appId;
 
-    @Value("${wxpay.v3.merchant-id:}")
+    @Value("${wechat.pay.merchant-id:}")
     private String merchantId;
 
-    @Value("${wxpay.v3.private-key-path:}")
+    @Value("${wechat.pay.private-key-path:}")
     private String privateKeyPath;
 
-    @Value("${wxpay.v3.merchant-serial-number:}")
+    @Value("${wechat.pay.merchant-serial-number:}")
     private String merchantSerialNumber;
 
-    @Value("${wxpay.v3.api-v3-key:}")
+    @Value("${wechat.pay.api-v3-key:}")
     private String apiV3Key;
 
-    @Value("${wxpay.v3.payment-notify-url:}")
+    @Value("${wechat.pay.payment-notify-url:}")
     private String paymentNotifyUrl;
 
-    @Value("${wxpay.v3.refund-notify-url:}")
+    @Value("${wechat.pay.refund-notify-url:}")
     private String refundNotifyUrl;
 
+    @Value("${wechat.oauth.app-secret:}")
+    private String appSecret;
+
     @Bean
-    @ConditionalOnProperty(prefix = "wxpay", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "wechat", name = "enabled", havingValue = "true")
     public RSAAutoCertificateConfig rsaAutoCertificateConfig() {
         return new RSAAutoCertificateConfig.Builder()
                 .merchantId(merchantId)
@@ -46,19 +49,20 @@ public class WxPayV3Config {
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "wxpay", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "wechat", name = "enabled", havingValue = "true")
     public NotificationParser notificationParser(RSAAutoCertificateConfig rsaAutoCertificateConfig) {
         return new NotificationParser(rsaAutoCertificateConfig);
     }
 
     @Bean
-    @ConditionalOnProperty(prefix = "wxpay", name = "enabled", havingValue = "true")
-    public NativePayService nativePayService(RSAAutoCertificateConfig rsaAutoCertificateConfig) {
-        return new NativePayService.Builder().config(rsaAutoCertificateConfig).build();
+    @ConditionalOnProperty(prefix = "wechat", name = "enabled", havingValue = "true")
+    public JsapiService jsapiPayService(RSAAutoCertificateConfig rsaAutoCertificateConfig) {
+        return new JsapiService.Builder().config(rsaAutoCertificateConfig).build();
     }
+
     @Bean
-    @ConditionalOnProperty(prefix = "wxpay", name = "enabled", havingValue = "true")
+    @ConditionalOnProperty(prefix = "wechat", name = "enabled", havingValue = "true")
     public RefundService refundService(RSAAutoCertificateConfig rsaAutoCertificateConfig) {
-        return new RefundService.Builder().config(rsaAutoCertificateConfig()).build();
+        return new RefundService.Builder().config(rsaAutoCertificateConfig).build();
     }
 }
