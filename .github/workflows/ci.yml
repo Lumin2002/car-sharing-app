@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build & Test (JDK 17)
+    runs-on: ubuntu-latest
+
+    # 集成测试跑在真实 MySQL + Redis 上（MQ 生产者在测试里被 mock，不需要 RabbitMQ）
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: "123456"
+          MYSQL_DATABASE: car_sharing_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p123456"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: Initialize database schema and seed data
+        run: |
+          command -v mysql >/dev/null || { sudo apt-get update && sudo apt-get install -y mysql-client; }
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 --protocol=TCP --default-character-set=utf8mb4 < sql/schema.sql
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 --protocol=TCP --default-character-set=utf8mb4 < sql/seed_admin_user.sql
+
+      - name: Run tests and package
+        run: mvn -B clean verify
+
+      - name: Build Docker image
+        run: docker build -t car-sharing-app:${{ github.sha }} .

@@ -68,3 +68,19 @@ logging:
     rollingpolicy:
       max-file-size: 10MB
       max-history: 15
+
+# ---------------------------------------------------------------------------
+#  Actuator：暴露健康检查与运行指标（探针 / 监控用）
+#  - /actuator/health   健康检查，含 liveness / readiness 探针
+#  - /actuator/info     应用信息
+#  - /actuator/metrics  运行指标（JVM、HTTP、数据源等）
+# ---------------------------------------------------------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true

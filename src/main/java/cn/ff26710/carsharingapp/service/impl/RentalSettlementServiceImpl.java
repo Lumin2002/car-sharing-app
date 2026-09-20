@@ -4,12 +4,7 @@ import cn.ff26710.carsharingapp.entity.Payment;
 import cn.ff26710.carsharingapp.entity.RentalOrder;
 import cn.ff26710.carsharingapp.entity.RentalSettlement;
 import cn.ff26710.carsharingapp.entity.User;
-import cn.ff26710.carsharingapp.entity.enums.PayType;
-import cn.ff26710.carsharingapp.entity.enums.PaymentStatus;
-import cn.ff26710.carsharingapp.entity.enums.RefundType;
-import cn.ff26710.carsharingapp.entity.enums.MessageType;
-import cn.ff26710.carsharingapp.entity.enums.SettlementStatus;
-import cn.ff26710.carsharingapp.entity.enums.UserRole;
+import cn.ff26710.carsharingapp.entity.enums.*;
 import cn.ff26710.carsharingapp.exception.BusinessException;
 import cn.ff26710.carsharingapp.mapper.RentalOrderMapper;
 import cn.ff26710.carsharingapp.mapper.RentalSettlementMapper;
@@ -34,6 +29,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -71,17 +67,31 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
         int exceedMileage = Math.max(0, actualMileage - preMileage - freeMileage);
         BigDecimal exceedFee = exceedMileageFee.multiply(BigDecimal.valueOf(exceedMileage))
                 .setScale(2, RoundingMode.HALF_UP);
-
+        // 超时分钟
         long overtimeMinutes = 0;
         if (order.getActualReturnTime() != null && order.getEndTime() != null) {
             long minutes = Duration.between(order.getEndTime(), order.getActualReturnTime()).toMinutes();
             overtimeMinutes = Math.max(0, minutes - overtimeGraceMinutes);
         }
-        long overtimeHours = overtimeMinutes == 0 ? 0 : (overtimeMinutes + 59) / 60;
+        // 超时小时
+        long overtimeHours = 0;
+        // 其它费用(租金)
+        BigDecimal otherFee = BigDecimal.ZERO;
+        // 单日租金
+        BigDecimal dailyPrice = Optional.ofNullable(order.getDailyPrice()).orElse(BigDecimal.ZERO);
+        if (overtimeMinutes > 0) {
+            long calcHours = (overtimeMinutes + 59) / 60;
+            if (calcHours > 4) {
+                long overtimeRealDays = (calcHours + 23) / 24;
+                otherFee = dailyPrice.multiply(BigDecimal.valueOf(overtimeRealDays))
+                        .setScale(2, RoundingMode.HALF_UP);
+            } else {
+                overtimeHours = calcHours;
+            }
+        }
+        // 超时费
         BigDecimal overtimeFee = overtimeFeePerHour.multiply(BigDecimal.valueOf(overtimeHours))
                 .setScale(2, RoundingMode.HALF_UP);
-
-        BigDecimal otherFee = BigDecimal.ZERO;
         BigDecimal extraFee = exceedFee.add(overtimeFee).add(otherFee);
 
         BigDecimal rentAmount = order.getRentAmount() == null ? BigDecimal.ZERO : order.getRentAmount();
@@ -102,6 +112,8 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
         settlement.setOtherFee(otherFee);
         settlement.setRentAmount(rentAmount);
         settlement.setTotalSettleAmount(rentAmount.add(extraFee));
+        order.setTotalAmount(rentAmount.add(extraFee));
+        rentalOrderMapper.updateById(order);
         settlement.setOriginalDeposit(originalDeposit);
         settlement.setDepositDeductAmount(deductAmount);
         settlement.setDepositRefundAmount(depositRefund);

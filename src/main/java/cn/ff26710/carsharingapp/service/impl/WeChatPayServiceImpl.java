@@ -144,7 +144,7 @@ public class WeChatPayServiceImpl implements WeChatPayService {
         String refundStatus = notification.getRefundStatus().name();
         String refundNo = notification.getOutRefundNo();
         String wxRefundNo = notification.getRefundId();
-        Long amountCent = notification.getAmount().getTotal();
+        Long amountCent = notification.getAmount().getRefund();
         String plainJson = JSONUtil.toJsonStr(notification);
 
         log.info("微信退款回调 refundNo:{}, refundState:{}", refundNo, refundStatus);

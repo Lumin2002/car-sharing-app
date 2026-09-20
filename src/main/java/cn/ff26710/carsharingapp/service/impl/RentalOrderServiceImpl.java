@@ -174,19 +174,19 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
             throw new BusinessException("订单不存在");
         }
         checkOwnerOrAdmin(order);
-        if (!RentalStatus.RENTING.equals(order.getStatus())) {
+        RentalStatus status = order.getStatus();
+        List<RentalStatus> allowReturnStatus =
+                List.of(RentalStatus.RENTING,
+                        RentalStatus.OVERDUE);
+        if (!allowReturnStatus.contains(status)) {
             throw new BusinessException("该订单当前状态不可还车");
         }
 
         LocalDateTime now = LocalDateTime.now();
         int rentDays = calcRentDays(order.getStartTime(), now);
-        BigDecimal rentAmount = order.getDailyPrice().multiply(BigDecimal.valueOf(rentDays));
-        BigDecimal deposit = order.getDeposit() == null ? BigDecimal.ZERO : order.getDeposit();
 
         order.setActualReturnTime(now);
         order.setRentDays(rentDays);
-        order.setRentAmount(rentAmount);
-        order.setTotalAmount(rentAmount.add(deposit));
         order.setStatus(RentalStatus.RETURNED);
         order.setMileageAfter(dto.getMileageAfter());
         if (dto.getRemark() != null) {

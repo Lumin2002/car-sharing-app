@@ -77,7 +77,7 @@ public class FileStorageServiceImpl implements FileStorageService {
         String fileName = UUID.randomUUID().toString().replace("-", "") + "." + extension;
 
         Path targetDir = rootDir.resolve(bizDir).resolve(dateDir).normalize();
-        // 二次确认最终路径没有跑出根目录（双保险）
+
         if (!targetDir.startsWith(rootDir)) {
             throw new BusinessException("非法的上传路径");
         }
@@ -93,7 +93,11 @@ public class FileStorageServiceImpl implements FileStorageService {
         }
 
         FileVO vo = new FileVO();
-        vo.setUrl(buildUrl(bizDir, dateDir, fileName));
+        if (!"kyc".equals(biz)) {
+            vo.setUrl(buildUrl(bizDir, dateDir, fileName));
+        } else {
+            vo.setUrl(null);
+        }
         vo.setOriginalName(file.getOriginalFilename());
         vo.setSize(file.getSize());
         vo.setContentType(file.getContentType());

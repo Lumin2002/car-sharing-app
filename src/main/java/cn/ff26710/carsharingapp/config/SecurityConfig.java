@@ -94,6 +94,13 @@ public class SecurityConfig {
                         // （前缀取自 app.upload.url-prefix，改配置时这里会自动跟着变）
                         .requestMatchers(HttpMethod.GET,
                                 uploadProperties.getUrlPrefix() + "/**").permitAll()
+                        // 证件等上传图片信息需登录后鉴权访问
+                        .requestMatchers(uploadProperties.getUrlPrefix() + "/kyc/**").authenticated()
+                        // 健康检查与运行指标（探针 / 监控用），匿名可访问
+                        .requestMatchers(
+                                "/actuator/health",
+                                "/actuator/health/**",
+                                "/actuator/info").permitAll()
                         .anyRequest().authenticated()
                 );
         http.exceptionHandling(ex -> ex

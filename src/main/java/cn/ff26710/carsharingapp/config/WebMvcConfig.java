@@ -37,16 +37,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 .addResourceLocations(location);
     }
 
-    /**
-     * LogResults 的编码转换。
-     *
-     * <p>{@code LogResults.code} 上标了 {@code @JsonValue}，所以响应体里 results 是 0/1；
-     * 但 {@code @JsonValue} 只管 JSON 序列化，**查询参数绑定走的是 Spring 的类型转换**，
-     * 默认只会按枚举名（SUCCESS/FAIL）匹配。结果就是接口「吐 0/1、却只收 SUCCESS/FAIL」，
-     * 前端照着响应回传 0 会被判成参数非法。
-     *
-     * <p>这里把编码和枚举名都接上，保证「看到什么就能传什么」。
-     */
     @Override
     public void addFormatters(FormatterRegistry registry) {
         registry.addConverter(new Converter<String, LogResults>() {
