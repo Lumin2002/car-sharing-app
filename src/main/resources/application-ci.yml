@@ -38,15 +38,15 @@ mybatis-plus:
     map-underscore-to-camel-case: true
 
 jwt:
-  secret: ${JWT_SECRET:car-sharing-app-2026-secret-key-32chars}
-  expire-hours: ${JWT_EXPIRE_HOURS:2}
+  secret: car-sharing-app-2026-secret-key-ci
+  expire-hours: 2
 
 snowflake:
-  worker-id: ${SNOWFLAKE_WORKER_ID:1}
-  data-center-id: ${SNOWFLAKE_DATA_CENTER_ID:0}
+  worker-id: 1
+  data-center-id: 0
 
 wechat:
-  enabled: ${WECHAT_ENABLED:false}
+  enabled: false
 
 app:
   cors:

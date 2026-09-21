@@ -21,8 +21,8 @@ knife4j:
   enable: true
 
 jwt:
-  secret: ${JWT_SECRET:car-sharing-app-2026-secret-key-dev}
-  expire-hours: ${JWT_EXPIRE_HOURS:2}
+  secret: car-sharing-app-2026-secret-key-dev
+  expire-hours: 2
 
 app:
   upload:

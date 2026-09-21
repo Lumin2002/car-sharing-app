@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets;
 @Configuration
 @RequiredArgsConstructor
 public class JwtConfig {
-    @Value("${jwt.secret}")
+    @Value("${jwt.secret:car-sharing-app-2026-secret-key-32chars}")
     private final String key;
     @Value("${jwt.expire-hours:2}")
     private final Long expireHours;
