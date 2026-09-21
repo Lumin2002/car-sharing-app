@@ -25,7 +25,6 @@ import java.util.List;
 public class OutboxServiceImpl extends ServiceImpl<OutboxMessageMapper, OutboxMessage> implements OutboxService {
 
     private final OutboxMessageMapper outboxMessageMapper;
-    private final ObjectMapper objectMapper;
     private final RabbitTemplate rabbitTemplate;
 
     private static final Integer MAX_RETRY = 10;
