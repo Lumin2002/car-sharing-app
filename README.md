@@ -26,6 +26,7 @@
 | 消息队列 | RabbitMQ 3.13 |
 | 认证 | JWT、Spring Security |
 | 支付 | wechatpay-java，微信支付 APIv3 JSAPI 支付 + 退款 |
+| 短信服务 | 阿里云 Dysmsapi |
 | 对象映射 | MapStruct |
 | 工具 | Lombok、Hutool |
 | 接口文档 | knife4j / OpenAPI 3 |
@@ -171,6 +172,35 @@ docker compose --profile full up -d
 | `APP_CORS_ALLOWED_ORIGINS` | 允许跨域来源 | 本地前端地址 |
 | `KNIFE4J_ENABLE` | 是否开启接口文档 | 生产默认 `false` |
 | `LOG_FILE` | 日志文件路径 | `logs/system-log.log` |
+| `ALIYUN_ENABLED` | 是否启用阿里云短信 | `false` |
+| `ALIYUN_ACCESS_KEY_ID` | 阿里云短信 AccessKey ID | 空 |
+| `ALIYUN_ACCESS_KEY_SECRET` | 阿里云短信 AccessKey Secret | 空 |
+
+## 阿里云短信配置
+
+默认 `ALIYUN_ENABLED=false`，短信验证码相关能力不会启用。需要启用时，在 `.env` 或部署环境中配置：
+
+```bash
+ALIYUN_ENABLED=true
+ALIYUN_ACCESS_KEY_ID=<阿里云 AccessKey ID>
+ALIYUN_ACCESS_KEY_SECRET=<阿里云 AccessKey Secret>
+```
+
+短信签名和模板在 `application-prod.yml` 中配置：
+
+```yaml
+aliyun:
+  enabled: ${ALIYUN_ENABLED:false}
+  sms:
+    access-key-id: ${ALIYUN_ACCESS_KEY_ID:}
+    access-key-secret: ${ALIYUN_ACCESS_KEY_SECRET:}
+    endpoint: dysmsapi.aliyuncs.com
+    sign-name: <你的短信签名>
+    template-code:
+      send-code: <你的短信验证码模板 Code>
+```
+
+其中 `template-code.send-code` 用于注册、登录、重置密码三个验证码场景；正式接入前需要替换成阿里云控制台中的真实模板 Code。
 
 ## 微信支付配置
 
@@ -369,7 +399,7 @@ CI 位于 `.github/workflows/ci.yml`，使用 JDK 17 + MySQL 8 + Redis 7 + Rabbi
 
 ## 已知限制
 
-- 短信服务当前仍是 Mock 实现，生产环境需接入真实短信网关。
+- 阿里云短信默认关闭，启用后还需要配置 AccessKey、短信签名和真实模板 Code；未配置时短信验证码不可用。
 - 未配置微信商户信息时，微信支付默认关闭；`BALANCE` 仅用于本地联调。
 - 押金冻结当前实现为普通支付，不是真正的微信预授权冻结。
 - 文件存储当前为本地磁盘，生产环境建议替换为对象存储。

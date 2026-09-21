@@ -25,7 +25,7 @@ public class CaptchaServiceImpl implements CaptchaService {
 
     private static final String IMAGE_CAPTCHA_KEY = "captcha:image:";
     private static final String REGISTER_SMS_CODE_KEY = "captcha:sms:register:";
-    private static final String REGISTER_SMS_RATE_KEY = "captcha:sms:login:rate:";
+    private static final String REGISTER_SMS_RATE_KEY = "captcha:sms:register:rate:";
     private static final String LOGIN_SMS_CODE_KEY = "captcha:sms:login:";
     private static final String LOGIN_SMS_RATE_KEY = "captcha:sms:login:rate:";
     private static final String RESET_PASSWORD_SMS_CODE_KEY = "captcha:sms:reset-password:";
