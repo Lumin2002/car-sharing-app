@@ -57,11 +57,24 @@ jobs:
           distribution: temurin
           cache: maven
 
+      - name: Wait for MySQL ready
+        run: |
+          for i in {1..15}; do
+            echo "Attempt $i to connect MySQL"
+            mysql -h 127.0.0.1 -P3306 -uroot -p123456 --protocol=TCP -e "SELECT 1;" && break
+            sleep 3
+          done
+
+      - name: Import schema & seed data
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 --protocol=TCP --default-character-set=utf8mb4 < sql/schema.sql
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 --protocol=TCP --default-character-set=utf8mb4 < sql/seed_admin_user.sql
+
       - name: Initialize database schema and seed data
         run: |
           command -v mysql >/dev/null || { sudo apt-get update && sudo apt-get install -y mysql-client; }
-          mysql -h mysql -P 3306 -uroot -p123456 --protocol=TCP --default-character-set=utf8mb4 < sql/schema.sql
-          mysql -h mysql -P 3306 -uroot -p123456 --protocol=TCP --default-character-set=utf8mb4 < sql/seed_admin_user.sql
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 --protocol=TCP --default-character-set=utf8mb4 < sql/schema.sql
+          mysql -h 127.0.0.1 -P 3306 -uroot -p123456 --protocol=TCP --default-character-set=utf8mb4 < sql/seed_admin_user.sql
 
       - name: Run tests and package
         run: mvn -B clean verify
