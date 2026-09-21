@@ -1,6 +1,6 @@
 # 共享汽车租赁平台（后端）
 
-共享汽车分时租赁平台的后端服务，覆盖「认证 -> 资质审核 -> 选车下单 -> 支付租金与押金 -> 取车 -> 还车计费结算 -> 取消退款 -> 逾期提醒」的完整业务闭环。
+共享汽车分时租赁平台的后端服务，覆盖「认证 -> 资质审核 -> 选车下单 -> 支付租金与押金 -> 取车 -> 还车计费结算 -> 取消退款 -> 逾期提醒」的完整业务闭环，并配套操作日志、消息通知、Outbox 投递、支付/退款对账、健康检查与运行指标。
 
 支付模块已接入微信支付 APIv3 JSAPI 下单、支付回调、退款申请与退款回调。未配置微信商户信息时，默认关闭微信支付，应用仍可正常启动。
 
@@ -18,6 +18,8 @@
 | 对象映射 | MapStruct |
 | 工具 | Lombok、Hutool |
 | 接口文档 | knife4j |
+| 监控 | Spring Boot Actuator |
+| 分布式调度锁 | ShedLock |
 
 ## 目录结构
 
@@ -25,7 +27,7 @@
 src/main/java/cn/ff26710/carsharingapp/
 ├── annotation/       # 自定义注解
 ├── aspect/           # 操作日志、MQ 事务提交后投递切面
-├── config/           # Security / MyBatis-Plus / RabbitMQ / 线程池 / 定时任务 / 微信支付
+├── config/           # Security / MyBatis-Plus / RabbitMQ / 线程池 / 定时任务 / 微信支付 / ShedLock
 ├── controller/       # 接口层，含 Auth、Rental、Payment、Refund、Pay 回调等
 ├── convert/          # MapStruct 实体 <-> VO
 ├── dto/              # 入参对象
@@ -33,10 +35,10 @@ src/main/java/cn/ff26710/carsharingapp/
 ├── exception/        # 业务异常与全局异常处理
 ├── filter/           # JWT 认证过滤器
 ├── mapper/           # MyBatis-Plus Mapper
-├── mq/               # MQ 事件、生产者、消费者
+├── mq/               # MQ 事件、生产者、消费者、Outbox 回调与死信消费者
 ├── security/         # 短信验证码认证
-├── service/          # 业务层，含 PaymentRecordService / WeChatPayService / WeChatOAuthService
-├── tasks/            # 逾期扫描、令牌清理定时任务
+├── service/          # 业务层，含支付、退款、对账、Outbox、微信支付/授权等
+├── tasks/            # 逾期扫描、令牌清理、Outbox 发布、支付/退款对账定时任务
 ├── utils/            # JWT / 脱敏 / IP / 金额换算 / 雪花 ID
 └── vo/               # 出参对象
 ```
@@ -49,13 +51,19 @@ src/main/java/cn/ff26710/carsharingapp/
 docker compose up -d
 ```
 
-默认启动 MySQL、Redis、RabbitMQ：
+默认启动 MySQL、Redis、RabbitMQ。仓库里的 `.env` 将 MySQL 映射到宿主机 `3307`（因为本机 `3306` 已被原生 MySQL 占用）；如复制 `.env.example` 使用默认 `3306`，需要同步调整 `application-dev.yml` 或 `SPRING_DATASOURCE_URL`。
 
 | 服务 | 地址 |
 |---|---|
-| MySQL | `localhost:3306`，root / 123456，库名 `car_sharing_db` |
+| MySQL | `localhost:3307`，root / 123456，库名 `car_sharing_db` |
 | Redis | `localhost:6379` |
 | RabbitMQ | `localhost:5672`，管理台 `http://localhost:15672`，admin / 123456 |
+
+如需连后端应用一起容器化启动：
+
+```bash
+docker compose --profile full up -d
+```
 
 ### 2. 启动后端
 
@@ -67,6 +75,9 @@ mvn spring-boot:run
 
 - 服务：`http://localhost:8080`
 - 接口文档：`http://localhost:8080/doc.html`
+- 健康检查：`http://localhost:8080/actuator/health`
+- 存活/就绪探针：`/actuator/health/liveness`、`/actuator/health/readiness`
+- 运行指标：`/actuator/metrics`
 
 ### 3. 启动前端（可选）
 
@@ -105,6 +116,28 @@ WECHAT_OAUTH_SECRET=<公众号 AppSecret，用于 code 换 openid>
 | POST | `/api/pay/wechat/payment-notify` | 支付结果回调 |
 | POST | `/api/pay/wechat/refund-notify` | 退款结果回调 |
 
+### 主要环境变量
+
+本地 `dev` 配置已经有可直接运行的默认值；`prod` profile 和容器化部署依赖以下变量：
+
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `SPRING_PROFILES_ACTIVE` | 激活 profile | `dev` |
+| `SPRING_DATASOURCE_URL` | MySQL JDBC 地址 | 见 `application.yml` |
+| `SPRING_DATASOURCE_USERNAME` | MySQL 用户名 | `root` |
+| `SPRING_DATASOURCE_PASSWORD` | MySQL 密码 | `123456` |
+| `SPRING_DATA_REDIS_HOST` | Redis 地址 | `127.0.0.1` |
+| `SPRING_DATA_REDIS_PORT` | Redis 端口 | `6379` |
+| `SPRING_RABBITMQ_HOST` | RabbitMQ 地址 | `127.0.0.1` |
+| `SPRING_RABBITMQ_PORT` | RabbitMQ 端口 | `5672` |
+| `SPRING_RABBITMQ_USERNAME` | RabbitMQ 用户名 | `admin` |
+| `SPRING_RABBITMQ_PASSWORD` | RabbitMQ 密码 | `123456` |
+| `JWT_SECRET` | JWT 签名密钥 | 开发默认值 |
+| `SNOWFLAKE_WORKER_ID` | 雪花算法 worker id | `1` |
+| `APP_CORS_ALLOWED_ORIGINS` | 允许的前端跨域来源 | `http://localhost:5173,...` |
+| `KNIFE4J_ENABLE` | 是否开启接口文档 | 生产默认 `false` |
+| `LOG_FILE` | 日志文件路径 | `logs/system-log.log` |
+
 ## 业务状态流转
 
 租赁订单主流程：
@@ -114,6 +147,7 @@ WECHAT_OAUTH_SECRET=<公众号 AppSecret，用于 code 换 openid>
   -> 支付租金(RENT_PAY)
   -> 支付押金(DEPOSIT_FROZEN)
   -> 取车(RENTING)
+     （逾期后自动转为 OVERDUE，仍可还车/取消）
   -> 还车(RETURNED)
   -> 生成结算单
   -> 管理员确认结算并退款/扣罚(FINISHED)
@@ -220,6 +254,26 @@ GET 接口匿名可访问；管理操作需要 `ADMIN` 角色。
 | 操作日志 | `/api/log/page` | 操作日志分页，ADMIN |
 | 文件上传 | `/api/file/upload` | 上传图片，返回可访问 URL |
 
+文件上传后通过 `/uploads/**` 静态访问。普通目录（如 `avatar`、`other`）匿名可读；`realname`、`license` 证件图片目录需要登录后才能访问；`kyc` 目录只落盘、不返回公开 URL。
+
+## 测试与 CI
+
+测试为基于真实 MySQL + Redis + MockMvc 的集成测试，覆盖认证鉴权、车辆/门店查询、下单支付取车还车、取消退款、通知发布、文件上传等链路。当前共 51 个测试用例。
+
+本地运行前先启动中间件，然后执行：
+
+```bash
+mvn test
+```
+
+测试使用 `test` profile，默认连接 `127.0.0.1:3307/car_sharing_db`；如果使用 `.env.example` 的默认 `3306`，可设置：
+
+```bash
+SPRING_DATASOURCE_URL='jdbc:mysql://127.0.0.1:3306/car_sharing_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai' mvn test
+```
+
+CI 工作流位于 `.github/workflows/ci.yml`，使用 JDK 17 + MySQL 8 + Redis 7 + RabbitMQ 3.13，执行 `mvn clean verify` 并构建 Docker 镜像。
+
 ## 数据库脚本
 
 `sql/` 目录：
@@ -229,6 +283,8 @@ GET 接口匿名可访问；管理操作需要 `ADMIN` 角色。
 | `schema.sql` | 全新环境建库建表 |
 | `migration_*.sql` | 存量库增量迁移 |
 | `seed_*.sql` | 管理员、门店、车辆、车辆属性种子数据 |
+
+`docker compose up -d` 首次初始化时会自动挂载并执行 `schema.sql`、管理员、门店、车辆种子数据；`seed_car_attributes.sql` 需按下面顺序手动执行。
 
 全新环境执行顺序：
 
