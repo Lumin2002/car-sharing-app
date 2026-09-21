@@ -13,12 +13,11 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 
 @Configuration
-@RequiredArgsConstructor
 public class JwtConfig {
     @Value("${jwt.secret:car-sharing-app-2026-secret-key-32chars}")
-    private final String key;
+    private String key;
     @Value("${jwt.expire-hours:2}")
-    private final Long expireHours;
+    private Long expireHours;
     private SecretKey signingKey;
     @PostConstruct
     public void init() {
