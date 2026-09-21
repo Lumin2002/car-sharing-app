@@ -210,8 +210,8 @@ class RentalFlowIntegrationTest extends IntegrationTestBase {
         assertThat(data.path("overtimeMinute").asLong()).isZero();
         assertThat(data.path("overtimeFee").asDouble()).isEqualTo(0.00);
         assertThat(data.path("exceedMileageFee").asDouble()).isEqualTo(0.00);
-        // 提前还车按实际使用天数重算租金（当天还车 = 1 天）
-        assertThat(data.path("rentAmount").asDouble()).isEqualTo(200.00);
+        // 提前还车不退还未使用的预订天数，结算租金仍按订单预订租金（3 天）记录
+        assertThat(data.path("rentAmount").asDouble()).isEqualTo(600.00);
         assertThat(data.path("depositRefundAmount").asDouble()).isEqualTo(1000.00);
     }
 

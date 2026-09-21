@@ -32,11 +32,11 @@ class FileUploadIntegrationTest extends IntegrationTestBase {
         String token = login(admin.phone(), admin.password());
         byte[] content = "fake-jpeg-bytes".getBytes();
 
-        JsonNode res = upload("idcard.jpg", "image/jpeg", content, "realname", token);
+        JsonNode res = upload("idcard.jpg", "image/jpeg", content, "avatar", token);
 
         assertThat(res.path("code").asInt()).isEqualTo(200);
         String url = res.path("data").path("url").asText();
-        assertThat(url).startsWith("/uploads/realname/").endsWith(".jpg");
+        assertThat(url).startsWith("/uploads/avatar/").endsWith(".jpg");
         assertThat(res.path("data").path("originalName").asText()).isEqualTo("idcard.jpg");
         assertThat(res.path("data").path("size").asLong()).isEqualTo(content.length);
 
@@ -142,12 +142,12 @@ class FileUploadIntegrationTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("实名/驾照/KYC 证件图片匿名不可访问，登录后可以访问")
-    void kycFileRequiresAuthentication() throws Exception {
+    @DisplayName("实名/驾照证件图片匿名不可访问，登录后可以访问")
+    void credentialFileRequiresAuthentication() throws Exception {
         var admin = createAdmin();
         String token = login(admin.phone(), admin.password());
 
-        for (String biz : List.of("realname", "license", "kyc")) {
+        for (String biz : List.of("realname", "license")) {
             String url = "/uploads/" + biz + "/test-idcard.jpg";
             Path kycFile = UPLOAD_ROOT.resolve(biz).resolve("test-idcard.jpg");
             Files.createDirectories(kycFile.getParent());

@@ -10,6 +10,14 @@
 # =============================================================================
 
 spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://127.0.0.1:3307/car_sharing_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:127.0.0.1}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   # 测试不消费 MQ，也就不依赖 RabbitMQ 必须在线；
   # 定时任务在 IntegrationTestBase 里用 @MockBean 换成了空实现
   rabbitmq:
