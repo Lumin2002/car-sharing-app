@@ -1,69 +1,117 @@
-# 共享汽车租赁平台（后端）
+# 共享汽车租赁平台
 
-共享汽车分时租赁平台的后端服务，覆盖「认证 -> 资质审核 -> 选车下单 -> 支付租金与押金 -> 取车 -> 还车计费结算 -> 取消退款 -> 逾期提醒」的完整业务闭环，并配套操作日志、消息通知、Outbox 投递、支付/退款对账、健康检查与运行指标。
+一个前后端分离的共享汽车分时租赁项目，覆盖「认证注册 -> 实名/驾照审核 -> 门店选车 -> 下单抢车 -> 支付租金与押金 -> 取车 -> 还车计费 -> 取消退款 -> 逾期提醒」的完整业务闭环。
 
-支付模块已接入微信支付 APIv3 JSAPI 下单、支付回调、退款申请与退款回调。未配置微信商户信息时，默认关闭微信支付，应用仍可正常启动。
+后端基于 Spring Boot，前端基于 Vue 3 + Vite，采用 npm workspaces 单仓多应用结构。项目包含真实 MySQL / Redis / RabbitMQ 集成测试、微信支付 APIv3、Outbox 消息投递、支付退款对账、操作日志和运行监控。
+
+## 核心能力
+
+- 认证鉴权：密码登录、短信验证码登录、图形验证码、JWT 双令牌、refresh token 轮换、登出拉黑。
+- 资质审核：实名认证、驾照认证的提交与管理员审核。
+- 车辆与门店：车辆/门店分页、详情、可租车辆查询、车辆属性维护、管理员车辆/门店管理。
+- 租赁流程：先到先得抢车、租金与押金支付、取车、还车结算、取消退款、逾期扫描与临期提醒。
+- 支付：微信 JSAPI 支付、余额模拟支付、支付/退款记录、微信回调处理。
+- 可靠性：Outbox 本地消息表、RabbitMQ confirm/returns 回调、死信消费、支付/退款定时对账、ShedLock 分布式任务锁。
+- 文件上传：本地磁盘存储、扩展名白名单、目录校验、敏感证件目录鉴权。
+- 监控：Actuator health/info/metrics、liveness/readiness 探针。
 
 ## 技术栈
 
 | 类别 | 选型 |
 |---|---|
-| 语言 / 构建 | Java 17、Maven |
-| 框架 | Spring Boot 3.2.5、Spring Security 6、Spring AOP |
-| 持久层 | MyBatis-Plus 3.5.5、MySQL 8 |
+| 后端语言 / 构建 | Java 17、Maven |
+| 后端框架 | Spring Boot 3.2.5、Spring Security 6、Spring AOP |
+| 持久层 | MyBatis-Plus 3.5.5、MySQL 8、Flyway |
 | 缓存 | Redis 7 |
 | 消息队列 | RabbitMQ 3.13 |
-| 认证 | JWT |
-| 微信支付 | wechatpay-java，APIv3 JSAPI 支付 + 退款 |
+| 认证 | JWT、Spring Security |
+| 支付 | wechatpay-java，微信支付 APIv3 JSAPI 支付 + 退款 |
 | 对象映射 | MapStruct |
 | 工具 | Lombok、Hutool |
-| 接口文档 | knife4j |
+| 接口文档 | knife4j / OpenAPI 3 |
+| 分布式任务锁 | ShedLock |
 | 监控 | Spring Boot Actuator |
-| 分布式调度锁 | ShedLock |
+| 前端 | Vue 3、Vite、Vue Router、Pinia、Vant 4、高德地图 |
 
-## 目录结构
+## 项目结构
+
+### 后端
 
 ```text
 src/main/java/cn/ff26710/carsharingapp/
 ├── annotation/       # 自定义注解
-├── aspect/           # 操作日志、MQ 事务提交后投递切面
-├── config/           # Security / MyBatis-Plus / RabbitMQ / 线程池 / 定时任务 / 微信支付 / ShedLock
-├── controller/       # 接口层，含 Auth、Rental、Payment、Refund、Pay 回调等
+├── aspect/           # 操作日志切面
+├── config/           # Security / MyBatis-Plus / RabbitMQ / 线程池 / 微信支付 / ShedLock 等配置
+├── controller/       # HTTP 接口层
 ├── convert/          # MapStruct 实体 <-> VO
 ├── dto/              # 入参对象
 ├── entity/           # 实体与枚举
 ├── exception/        # 业务异常与全局异常处理
 ├── filter/           # JWT 认证过滤器
 ├── mapper/           # MyBatis-Plus Mapper
-├── mq/               # MQ 事件、生产者、消费者、Outbox 回调与死信消费者
+├── mq/               # MQ 事件、生产者、消费者、回调、死信消费
 ├── security/         # 短信验证码认证
-├── service/          # 业务层，含支付、退款、对账、Outbox、微信支付/授权等
-├── tasks/            # 逾期扫描、令牌清理、Outbox 发布、支付/退款对账定时任务
-├── utils/            # JWT / 脱敏 / IP / 金额换算 / 雪花 ID
+├── service/          # 业务服务及实现
+├── tasks/            # 定时任务：逾期扫描、令牌清理、Outbox、对账
+├── utils/            # JWT / 脱敏 / IP / 金额 / 雪花 ID
 └── vo/               # 出参对象
+
+src/main/resources/
+├── application.yml           # 公共配置
+├── application-dev.yml       # 本地开发配置
+├── application-ci.yml        # CI 配置
+├── application-prod.yml      # 生产配置
+└── db/
+    ├── schema.sql            # 全新环境建库建表
+    └── seed_*.sql            # 种子数据
+
+src/test/
+├── java/.../                 # 集成测试
+└── resources/application-test.yml
+```
+
+### 前端
+
+```text
+frontend/
+├── package.json             # npm workspace 根配置
+├── packages/shared/         # 两端共用：API、请求封装、Pinia 登录态、地图组件
+└── apps/
+    ├── user/                # 用户端 H5，端口 5173
+    └── admin/               # 运维管理端 H5，端口 5174
 ```
 
 ## 快速开始
 
+### 环境要求
+
+- JDK 17
+- Maven 3.9+
+- Docker / Docker Compose
+- 前端运行需 Node.js 18+ 和 npm
+
 ### 1. 启动中间件
 
 ```bash
+cp .env.example .env
 docker compose up -d
 ```
 
-默认启动 MySQL、Redis、RabbitMQ。仓库里的 `.env` 将 MySQL 映射到宿主机 `3307`（因为本机 `3306` 已被原生 MySQL 占用）；如复制 `.env.example` 使用默认 `3306`，需要同步调整 `application-dev.yml` 或 `SPRING_DATASOURCE_URL`。
+仓库当前 `.env` 将 MySQL 映射到宿主机 `3307`，默认账号密码：
 
-| 服务 | 地址 |
-|---|---|
-| MySQL | `localhost:3307`，root / 123456，库名 `car_sharing_db` |
-| Redis | `localhost:6379` |
-| RabbitMQ | `localhost:5672`，管理台 `http://localhost:15672`，admin / 123456 |
+| 服务 | 地址 | 账号 / 密码 |
+|---|---|---|
+| MySQL | `localhost:3307` | `root` / `123456`，数据库 `car_sharing_db` |
+| Redis | `localhost:6379` | 无密码 |
+| RabbitMQ | `localhost:5672` | `admin` / `123456` |
+| RabbitMQ 管理台 | `http://localhost:15672` | `admin` / `123456` |
 
-如需连后端应用一起容器化启动：
+如果使用 `.env.example` 的默认端口 `3306`，需要同步修改 `application-dev.yml` 或设置 `SPRING_DATASOURCE_URL`。
 
-```bash
-docker compose --profile full up -d
-```
+首次启动 MySQL 容器会自动执行：
+
+- `src/main/resources/db/schema.sql`
+- 管理员、门店、车辆种子数据
 
 ### 2. 启动后端
 
@@ -71,12 +119,13 @@ docker compose --profile full up -d
 mvn spring-boot:run
 ```
 
-默认使用 `dev` profile，微信支付关闭。接口地址：
+默认使用 `dev` profile。启动后：
 
-- 服务：`http://localhost:8080`
+- 服务地址：`http://localhost:8080`
 - 接口文档：`http://localhost:8080/doc.html`
 - 健康检查：`http://localhost:8080/actuator/health`
-- 存活/就绪探针：`/actuator/health/liveness`、`/actuator/health/readiness`
+- 存活探针：`/actuator/health/liveness`
+- 就绪探针：`/actuator/health/readiness`
 - 运行指标：`/actuator/metrics`
 
 ### 3. 启动前端（可选）
@@ -88,42 +137,25 @@ npm run dev:user
 npm run dev:admin
 ```
 
-## 微信支付配置
+- 用户端：`http://localhost:5173`
+- 运维管理端：`http://localhost:5174`
 
-默认 `wechat.enabled=false`（环境变量 `WECHAT_ENABLED`），微信相关 Bean 和回调接口不会装配。
+### 4. 全容器启动
 
-需要接入微信支付时设置：
+也可以把后端一起放进容器：
 
 ```bash
-WECHAT_ENABLED=true
-WECHAT_PAY_APP_ID=<公众号/应用 AppID>
-WECHAT_PAY_MERCHANT_ID=<商户号>
-WECHAT_PAY_MERCHANT_SERIAL_NUMBER=<商户 API 证书序列号>
-WECHAT_PAY_API_V3_KEY=<APIv3 密钥>
-WECHAT_PAY_PRIVATE_KEY_PATH=<商户私钥文件路径>
-WECHAT_PAY_PAYMENT_NOTIFY_URL=<支付回调地址>
-WECHAT_PAY_REFUND_NOTIFY_URL=<退款回调地址>
-WECHAT_OAUTH_SECRET=<公众号 AppSecret，用于 code 换 openid>
+docker compose --profile full up -d
 ```
 
-对应配置项在 `application-prod.yml` 的 `wechat` 段。
+## 主要环境变量
 
-微信接口路径：
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/pay/wechat/openid` | 用网页授权 code 换 openid |
-| POST | `/api/pay/wechat/payment-notify` | 支付结果回调 |
-| POST | `/api/pay/wechat/refund-notify` | 退款结果回调 |
-
-### 主要环境变量
-
-本地 `dev` 配置已经有可直接运行的默认值；`prod` profile 和容器化部署依赖以下变量：
+本地 `dev` 配置已经有可运行默认值；`prod` 和容器化部署建议显式配置：
 
 | 变量 | 说明 | 默认值 |
 |---|---|---|
 | `SPRING_PROFILES_ACTIVE` | 激活 profile | `dev` |
-| `SPRING_DATASOURCE_URL` | MySQL JDBC 地址 | 见 `application.yml` |
+| `SPRING_DATASOURCE_URL` | MySQL JDBC 地址 | 见各 profile |
 | `SPRING_DATASOURCE_USERNAME` | MySQL 用户名 | `root` |
 | `SPRING_DATASOURCE_PASSWORD` | MySQL 密码 | `123456` |
 | `SPRING_DATA_REDIS_HOST` | Redis 地址 | `127.0.0.1` |
@@ -133,35 +165,61 @@ WECHAT_OAUTH_SECRET=<公众号 AppSecret，用于 code 换 openid>
 | `SPRING_RABBITMQ_USERNAME` | RabbitMQ 用户名 | `admin` |
 | `SPRING_RABBITMQ_PASSWORD` | RabbitMQ 密码 | `123456` |
 | `JWT_SECRET` | JWT 签名密钥 | 开发默认值 |
+| `JWT_EXPIRE_HOURS` | access token 有效期 | `2` |
 | `SNOWFLAKE_WORKER_ID` | 雪花算法 worker id | `1` |
-| `APP_CORS_ALLOWED_ORIGINS` | 允许的前端跨域来源 | `http://localhost:5173,...` |
+| `SNOWFLAKE_DATA_CENTER_ID` | 雪花算法数据中心 id | `0` |
+| `APP_CORS_ALLOWED_ORIGINS` | 允许跨域来源 | 本地前端地址 |
 | `KNIFE4J_ENABLE` | 是否开启接口文档 | 生产默认 `false` |
 | `LOG_FILE` | 日志文件路径 | `logs/system-log.log` |
 
-## 业务状态流转
+## 微信支付配置
 
-租赁订单主流程：
+默认 `WECHAT_ENABLED=false`，微信支付 Bean 和相关能力不会启用。
+
+需要接入微信支付时配置：
+
+```bash
+WECHAT_ENABLED=true
+WECHAT_PAY_APP_ID=<AppID>
+WECHAT_PAY_MERCHANT_ID=<商户号>
+WECHAT_PAY_MERCHANT_SERIAL_NUMBER=<商户 API 证书序列号>
+WECHAT_PAY_API_V3_KEY=<APIv3 密钥>
+WECHAT_PAY_PRIVATE_KEY_PATH=<商户私钥文件路径>
+WECHAT_PAY_PAYMENT_NOTIFY_URL=<支付回调地址>
+WECHAT_PAY_REFUND_NOTIFY_URL=<退款回调地址>
+WECHAT_OAUTH_SECRET=<公众号 AppSecret>
+```
+
+微信相关回调路径：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/pay/wechat/openid` | code 换 openid |
+| POST | `/api/pay/wechat/payment-notify` | 支付结果回调 |
+| POST | `/api/pay/wechat/refund-notify` | 退款结果回调 |
+
+## 业务状态流转
 
 ```text
 下单(PENDING)
   -> 支付租金(RENT_PAY)
   -> 支付押金(DEPOSIT_FROZEN)
   -> 取车(RENTING)
-     （逾期后自动转为 OVERDUE，仍可还车/取消）
+     （逾期自动转为 OVERDUE，仍可还车）
   -> 还车(RETURNED)
   -> 生成结算单
   -> 管理员确认结算并退款/扣罚(FINISHED)
 ```
 
-取消订单时：
+取消订单：
 
 - 宽限期内取消，租金全额退款。
-- 超出宽限期，按已用天数扣除租金，剩余租金退款。
-- 押金全额发起退款。
+- 超出宽限期，按已使用天数扣除租金。
+- 已支付押金会发起解冻退款。
 
 ## 接口概览
 
-统一响应格式：
+统一响应：
 
 ```json
 { "code": 200, "message": "success", "data": {} }
@@ -176,13 +234,13 @@ WECHAT_OAUTH_SECRET=<公众号 AppSecret，用于 code 换 openid>
 | POST | `/register` | 注册 |
 | POST | `/login` | 密码登录或短信验证码登录 |
 | GET | `/current` | 当前登录用户 |
-| POST | `/refresh` | 刷新 accessToken |
+| POST | `/refresh` | 刷新令牌 |
 | POST | `/logout` | 登出 |
 | POST | `/reset/password` | 重置密码 |
 
 ### 车辆 `/api/car`、门店 `/api/store`
 
-GET 接口匿名可访问；管理操作需要 `ADMIN` 角色。
+GET 查询接口匿名可访问；管理操作需要 `ADMIN` 角色。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -212,22 +270,19 @@ GET 接口匿名可访问；管理操作需要 `ADMIN` 角色。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/payment/create` | 创建支付单。请求体需包含 `orderId`、`payType`、`payMethod`；微信支付还需 `code` |
+| POST | `/api/payment/create` | 创建支付单 |
 | GET | `/api/payment/my` | 我的支付记录 |
 | GET | `/api/payment/order/{orderId}` | 某订单的支付记录 |
 
-`payType`：
+支付类型：
 
-- `RENT_PAY`：租金支付
-- `DEPOSIT_FROZEN`：押金支付
+- `RENT_PAY`：租金
+- `DEPOSIT_FROZEN`：押金
 
-`payMethod`：
+支付方式：
 
-- `WECHAT`：微信 JSAPI 支付，返回 `payParamMap`（appId / timeStamp / nonceStr / package / signType / paySign），前端用它调起 `WeixinJSBridge` 或 `wx.chooseWXPay`
-- `BALANCE`：余额模拟支付
-
-微信支付流程：前端先走网页授权拿到 `code`，调用 `POST /api/payment/create`；
-后端用 `code` 换 `openid` 并完成 JSAPI 预下单，返回调起支付所需参数。
+- `WECHAT`：微信 JSAPI 支付
+- `BALANCE`：余额模拟支付，便于本地联调
 
 ### 退款 `/api/refund`
 
@@ -248,53 +303,63 @@ GET 接口匿名可访问；管理操作需要 `ADMIN` 角色。
 
 | 模块 | 路径 | 说明 |
 |---|---|---|
-| 用户 | `/api/user/**` | 用户分页、详情、新增、修改、封禁、修改密码 |
-| 资质认证 | `/api/verification/**` | 实名认证与驾照认证的提交、查询、审核 |
-| 消息 | `/api/message/**` | 我的消息、未读数、已读、全部已读、删除 |
+| 用户管理 | `/api/user/**` | 用户分页、详情、新增、修改、封禁、改密 |
+| 资质认证 | `/api/verification/**` | 实名/驾照提交、查询、审核 |
+| 站内消息 | `/api/message/**` | 我的消息、未读数、已读、删除 |
 | 操作日志 | `/api/log/page` | 操作日志分页，ADMIN |
-| 文件上传 | `/api/file/upload` | 上传图片，返回可访问 URL |
+| 文件上传 | `/api/file/upload` | 图片上传 |
 
-文件上传后通过 `/uploads/**` 静态访问。普通目录（如 `avatar`、`other`）匿名可读；`realname`、`license` 证件图片目录需要登录后才能访问；`kyc` 目录只落盘、不返回公开 URL。
+## 文件上传
+
+上传文件保存在本地磁盘，默认目录为 `uploads/`。上传接口会校验扩展名、文件大小和业务目录名。
+
+- 普通目录如 `avatar`、`other` 可匿名访问。
+- `realname`、`license` 等敏感证件目录需要登录后才能访问。
+
+生产环境建议替换为 OSS/S3 对象存储。
+
+## 数据库脚本
+
+全新环境脚本位于：
+
+```text
+src/main/resources/db/
+├── schema.sql
+├── seed_admin_user.sql
+├── seed_stores_guangzhou.sql
+├── seed_cars_guangzhou.sql
+└── seed_car_attributes.sql
+```
+
+手动初始化：
+
+```bash
+mysql -uroot -p123456 < src/main/resources/db/schema.sql
+mysql -uroot -p123456 < src/main/resources/db/seed_admin_user.sql
+mysql -uroot -p123456 < src/main/resources/db/seed_stores_guangzhou.sql
+mysql -uroot -p123456 < src/main/resources/db/seed_cars_guangzhou.sql
+mysql -uroot -p123456 < src/main/resources/db/seed_car_attributes.sql
+```
+
+历史增量脚本保留在 `sql/migration_*.sql`。项目已引入 Flyway，后续新迁移建议放入 `src/main/resources/db/migration/`。
 
 ## 测试与 CI
 
-测试为基于真实 MySQL + Redis + MockMvc 的集成测试，覆盖认证鉴权、车辆/门店查询、下单支付取车还车、取消退款、通知发布、文件上传等链路。当前共 51 个测试用例。
+当前有 51 个集成测试，使用真实 MySQL、Redis 和 MockMvc，覆盖认证鉴权、车辆/门店查询、租赁主流程、取消退款、通知发布、文件上传等链路。
 
-本地运行前先启动中间件，然后执行：
+运行测试：
 
 ```bash
 mvn test
 ```
 
-测试使用 `test` profile，默认连接 `127.0.0.1:3307/car_sharing_db`；如果使用 `.env.example` 的默认 `3306`，可设置：
+测试使用 `test` profile，默认连接 `127.0.0.1:3307/car_sharing_db`；如果 MySQL 在 `3306`，可显式覆盖：
 
 ```bash
 SPRING_DATASOURCE_URL='jdbc:mysql://127.0.0.1:3306/car_sharing_db?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai' mvn test
 ```
 
-CI 工作流位于 `.github/workflows/ci.yml`，使用 JDK 17 + MySQL 8 + Redis 7 + RabbitMQ 3.13，执行 `mvn clean verify` 并构建 Docker 镜像。
-
-## 数据库脚本
-
-`sql/` 目录：
-
-| 文件 | 说明 |
-|---|---|
-| `schema.sql` | 全新环境建库建表 |
-| `migration_*.sql` | 存量库增量迁移 |
-| `seed_*.sql` | 管理员、门店、车辆、车辆属性种子数据 |
-
-`docker compose up -d` 首次初始化时会自动挂载并执行 `schema.sql`、管理员、门店、车辆种子数据；`seed_car_attributes.sql` 需按下面顺序手动执行。
-
-全新环境执行顺序：
-
-```bash
-mysql -uroot -p123456 < sql/schema.sql
-mysql -uroot -p123456 < sql/seed_admin_user.sql
-mysql -uroot -p123456 < sql/seed_stores_guangzhou.sql
-mysql -uroot -p123456 < sql/seed_cars_guangzhou.sql
-mysql -uroot -p123456 < sql/seed_car_attributes.sql
-```
+CI 位于 `.github/workflows/ci.yml`，使用 JDK 17 + MySQL 8 + Redis 7 + RabbitMQ 3.13，执行 `mvn clean verify` 并构建 Docker 镜像。
 
 ## 默认账号
 
@@ -304,8 +369,9 @@ mysql -uroot -p123456 < sql/seed_car_attributes.sql
 
 ## 已知限制
 
-- 未配置微信商户信息时，微信支付默认关闭；开启后才会装配微信相关 Bean。
-- 押金冻结目前实现为普通微信支付，不是真正意义上的微信预授权冻结。
-- 文件上传存储在本地磁盘，生产环境建议替换为对象存储。
-- 短信登录、操作日志消费等部分链路仍需要补充测试覆盖。
-- 微信退款已接入退款 API 和回调，但外部退款成功、本地写库失败时仍需对账补偿。
+- 短信服务当前仍是 Mock 实现，生产环境需接入真实短信网关。
+- 未配置微信商户信息时，微信支付默认关闭；`BALANCE` 仅用于本地联调。
+- 押金冻结当前实现为普通支付，不是真正的微信预授权冻结。
+- 文件存储当前为本地磁盘，生产环境建议替换为对象存储。
+- 测试主要集中在 HTTP 集成链路，短信、微信回调、定时任务和 MQ 消费端覆盖仍可继续加强。
+- 历史迁移脚本仍位于 `sql/migration_*.sql`，尚未全部整理为 Flyway 版本化迁移。

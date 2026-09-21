@@ -1,6 +1,7 @@
 target/
 logs/
 uploads/
+docs/
 .env
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/

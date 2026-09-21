@@ -71,6 +71,16 @@
             <artifactId>shedlock-provider-redis-spring</artifactId>
             <version>5.13.0</version>
         </dependency>
+        <!-- Flyway核心包 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <!-- MySQL驱动适配包（mysql8必须加） -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.github.xiaoymin</groupId>
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>

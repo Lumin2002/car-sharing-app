@@ -31,7 +31,14 @@ spring:
       # 上传照片用，默认只有 1MB，证件照很容易超
       max-file-size: 5MB
       max-request-size: 10MB
-
+  flyway:
+    enabled: true # 开启flyway，默认true
+    locations: classpath:db/migration # 脚本存放目录
+    baseline-on-migrate: true # 如果数据库已经存在旧表，自动基线标记（新项目可不用）
+    validate-on-migrate: true # 启动校验脚本是否被篡改（生产建议开启）
+    clean-disabled: true # 禁止生产环境自动清空库
+    # 可选：自定义flyway历史表名，默认 flyway_schema_history
+    # table: flyway_history
 mybatis-plus:
   type-aliases-package: cn.ff26710.carsharingapp.entity
   configuration:

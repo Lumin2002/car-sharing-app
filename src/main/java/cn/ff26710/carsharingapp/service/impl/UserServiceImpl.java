@@ -13,6 +13,7 @@ import cn.ff26710.carsharingapp.service.RefreshTokenService;
 import cn.ff26710.carsharingapp.service.UserService;
 import cn.ff26710.carsharingapp.utils.SecurityUtil;
 import cn.ff26710.carsharingapp.vo.user.UserVO;
+import cn.hutool.core.util.ReUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -126,7 +127,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         if (loginUser == null) {
             throw new BusinessException("未登录");
         }
-
+        if (!isValidPassword(dto.getNewPassword())) {
+            throw new BusinessException("密码至少8位，且需同时包含大写字母、小写字母和数字");
+        }
         if (dto.getNewPassword().equals(dto.getOldPassword())) {
             throw new BusinessException("新密码与旧密码一致");
         }
@@ -153,5 +156,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException("密码修改失败");
         }
         refreshTokenService.revokeAllByUserId(loginUser.getUserId());
+    }
+    public boolean isValidPassword(String pwd){
+        if(org.apache.commons.lang3.StringUtils.isBlank(pwd)){
+            return false;
+        }
+        String regex = "^(?=.*[A-Z])(?=.*[a-z])(?=.*\\d).{8,}$";
+        return ReUtil.isMatch(regex, pwd);
     }
 }

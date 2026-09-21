@@ -35,10 +35,10 @@ services:
     volumes:
       - mysql-data:/var/lib/mysql
       # 按文件名前缀顺序执行，schema 必须最先
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./sql/seed_admin_user.sql:/docker-entrypoint-initdb.d/02-seed-admin-user.sql:ro
-      - ./sql/seed_stores_guangzhou.sql:/docker-entrypoint-initdb.d/03-seed-stores.sql:ro
-      - ./sql/seed_cars_guangzhou.sql:/docker-entrypoint-initdb.d/04-seed-cars.sql:ro
+      - ./src/main/resources/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./src/main/resources/db/seed_admin_user.sql:/docker-entrypoint-initdb.d/02-seed-admin-user.sql:ro
+      - ./src/main/resources/db/seed_stores_guangzhou.sql:/docker-entrypoint-initdb.d/03-seed-stores.sql:ro
+      - ./src/main/resources/db/seed_cars_guangzhou.sql:/docker-entrypoint-initdb.d/04-seed-cars.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD:-123456}"]
       interval: 10s
@@ -120,6 +120,8 @@ services:
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-admin}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-123456}
+      JWT_SECRET: ${JWT_SECRET:-car-sharing-app-prod-secret-change-me}
+      SNOWFLAKE_WORKER_ID: ${SNOWFLAKE_WORKER_ID:-1}
 
       WECHAT_ENABLED: ${WECHAT_ENABLED:-false}
       WECHAT_PAY_APP_ID: ${WECHAT_PAY_APP_ID:-}

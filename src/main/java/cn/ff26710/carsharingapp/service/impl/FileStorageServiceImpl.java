@@ -93,7 +93,7 @@ public class FileStorageServiceImpl implements FileStorageService {
         }
 
         FileVO vo = new FileVO();
-        if (!"kyc".equals(biz)) {
+        if (!"realname".equals(biz) && !"license".equals(biz)) {
             vo.setUrl(buildUrl(bizDir, dateDir, fileName));
         } else {
             vo.setUrl(null);
