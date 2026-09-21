@@ -14,24 +14,27 @@ import cn.ff26710.carsharingapp.service.WeChatPayService;
 import cn.ff26710.carsharingapp.utils.AmountUtil;
 import cn.ff26710.carsharingapp.utils.SecurityUtil;
 import cn.ff26710.carsharingapp.utils.SnowflakeUtil;
+import cn.ff26710.carsharingapp.utils.TransactionUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> implements RefundService {
+
+    private static final int MAX_RETRY_COUNT = 5;
 
     private final RentalOrderMapper rentalOrderMapper;
     private final PaymentService paymentService;
@@ -57,6 +60,7 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
         if (isRefunded(order.getOrderId(), refundType)) {
             throw new BusinessException("该款项已退款，请勿重复发起退款请求");
         }
+
         Refund refund = getOne(Wrappers.lambdaQuery(Refund.class)
                 .eq(Refund::getOrderId, order.getOrderId())
                 .eq(Refund::getRefundType, refundType)
@@ -64,6 +68,7 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
         if (refund != null && RefundStatus.APPLY.equals(refund.getStatus())) {
             return refund;
         }
+
         LocalDateTime now = LocalDateTime.now();
         refund = new Refund();
         refund.setPaymentId(payment.getId());
@@ -75,7 +80,9 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
         refund.setReason(reason);
         refund.setCreateTime(now);
         refund.setStatus(RefundStatus.APPLY);
+        refund.setRetryCount(0);
         save(refund);
+
         switch (payment.getPayMethod()) {
             case BALANCE -> {
                 refund.setStatus(RefundStatus.SUCCESS);
@@ -83,21 +90,17 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
                 refund.setRawCallback(null);
                 refund.setThirdRefundNo(null);
                 paymentService.markRefunded(refund.getPaymentId());
+                updateById(refund);
             }
-            case WECHAT -> {
-                weChatPayService.refund(
-                        payment.getPaymentNo(),
-                        refund.getRefundNo(), reason, amount, payment.getAmount());
-            }
+            case WECHAT -> scheduleWeChatRefund(refund.getId(), payment.getId());
             default -> throw new BusinessException("未知支付方式");
         }
-        updateById(refund);
         return refund;
     }
 
     @Override
     public Refund getRefundByRefundNo(String refundNo) {
-        return lambdaQuery().eq(Refund::getRefundNo,refundNo).one();
+        return lambdaQuery().eq(Refund::getRefundNo, refundNo).one();
     }
 
     @Override
@@ -140,10 +143,13 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void handleWxPayCallback(String refundNo, String wxRefundNo,Long amountCent, String rawCallback) {
+    public void handleWxPayCallback(String refundNo, String wxRefundNo, Long amountCent, String rawCallback) {
         Refund refund = getRefundByRefundNo(refundNo);
         if (refund == null) {
             throw new BusinessException("退款单不存在");
+        }
+        if (RefundStatus.SUCCESS.equals(refund.getStatus())) {
+            return;
         }
         if (amountCent == null || refund.getAmount().compareTo(AmountUtil.fenLongToYuan(amountCent)) != 0) {
             throw new BusinessException("退款金额校验失败");
@@ -152,8 +158,84 @@ public class RefundServiceImpl extends ServiceImpl<RefundMapper, Refund> impleme
         refund.setThirdRefundNo(wxRefundNo);
         refund.setCallbackTime(LocalDateTime.now());
         refund.setRawCallback(rawCallback);
+        refund.setFailReason(null);
+        refund.setNextRetryTime(null);
         paymentService.markRefunded(refund.getPaymentId());
         updateById(refund);
+    }
+
+    private void scheduleWeChatRefund(Long refundId, Long paymentId) {
+        // 外部微信调用放到事务提交后执行，避免占用数据库事务。
+        TransactionUtil.afterCommitAsync(() -> submitWeChatRefund(refundId, paymentId));
+    }
+
+    private void submitWeChatRefund(Long refundId, Long paymentId) {
+        Refund refund = getById(refundId);
+        Payment payment = paymentService.getById(paymentId);
+        if (refund == null || payment == null || !RefundStatus.APPLY.equals(refund.getStatus())) {
+            return;
+        }
+        try {
+            weChatPayService.refund(
+                    payment.getPaymentNo(),
+                    refund.getRefundNo(),
+                    refund.getReason(),
+                    refund.getAmount(),
+                    payment.getAmount());
+        } catch (Exception e) {
+            log.error("微信退款提交失败，refundNo={}", refund.getRefundNo(), e);
+            markRefundFailed(refund.getId(), e.getMessage());
+        }
+    }
+
+    @Override
+    public void markRefundProcessing(Long refundId) {
+        lambdaUpdate()
+                .eq(Refund::getId, refundId)
+                .set(Refund::getStatus, RefundStatus.APPLY)
+                .set(Refund::getFailReason, null)
+                .set(Refund::getNextRetryTime, null)
+                .update();
+    }
+
+    @Override
+    public void markRefundFailed(Long refundId, String reason) {
+        Refund refund = getById(refundId);
+        if (refund == null) {
+            return;
+        }
+        int currentRetry = refund.getRetryCount() == null ? 0 : refund.getRetryCount();
+        int nextRetry = currentRetry + 1;
+        LocalDateTime nextRetryTime = null;
+        if (nextRetry < MAX_RETRY_COUNT) {
+            long delayMinutes = Math.min(60, 1L << Math.max(0, nextRetry - 1));
+            nextRetryTime = LocalDateTime.now().plusMinutes(delayMinutes);
+        }
+        lambdaUpdate()
+                .eq(Refund::getId, refundId)
+                .set(Refund::getStatus, RefundStatus.FAIL)
+                .set(Refund::getFailReason, truncate(reason))
+                .set(Refund::getRetryCount, nextRetry)
+                .set(Refund::getNextRetryTime, nextRetryTime)
+                .update();
+    }
+
+    @Override
+    public void markTerminalFailed(Long refundId, String reason) {
+        lambdaUpdate()
+                .eq(Refund::getId, refundId)
+                .set(Refund::getStatus, RefundStatus.FAIL)
+                .set(Refund::getFailReason, truncate(reason))
+                .set(Refund::getRetryCount, MAX_RETRY_COUNT)
+                .set(Refund::getNextRetryTime, null)
+                .update();
+    }
+
+    private String truncate(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.length() <= 255 ? value : value.substring(0, 255);
     }
 
     private void checkOwnerOrAdmin(RentalOrder order) {

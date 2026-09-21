@@ -1,7 +1,11 @@
 package cn.ff26710.carsharingapp.config;
 
+import cn.ff26710.carsharingapp.mq.callback.OutboxRabbitCallback;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.DefaultJackson2JavaTypeMapper;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
@@ -9,7 +13,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
+@RequiredArgsConstructor
 public class RabbitMQConfig {
+    private final CachingConnectionFactory connectionFactory;
+    private final OutboxRabbitCallback outboxRabbitCallback;
+
     public static final String RENTAL_EXCHANGE = "rental.exchange";
 
     /** 业务通知（下单、支付、结算、取消…） */
@@ -118,5 +126,16 @@ public class RabbitMQConfig {
         converter.setJavaTypeMapper(typeMapper);
 
         return converter;
+    }
+
+    @Bean
+    public RabbitTemplate rabbitTemplate(MessageConverter jsonMessageConverter) {
+        RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory);
+        rabbitTemplate.setMessageConverter(jsonMessageConverter);
+        rabbitTemplate.setConfirmCallback(outboxRabbitCallback);
+        rabbitTemplate.setReturnsCallback(outboxRabbitCallback);
+        rabbitTemplate.setChannelTransacted(false);
+        rabbitTemplate.setMandatory(true);
+        return rabbitTemplate;
     }
 }

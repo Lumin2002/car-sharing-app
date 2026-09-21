@@ -2,6 +2,7 @@ package cn.ff26710.carsharingapp.service.impl;
 
 import cn.ff26710.carsharingapp.entity.RefreshToken;
 import cn.ff26710.carsharingapp.entity.enums.TokenRevoked;
+import cn.ff26710.carsharingapp.exception.BusinessException;
 import cn.ff26710.carsharingapp.mapper.RefreshTokenMapper;
 import cn.ff26710.carsharingapp.service.RefreshTokenService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -11,44 +12,71 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.Base64;
+import java.util.HexFormat;
 
 @Service
 @RequiredArgsConstructor
 public class RefreshTokenServiceImpl implements RefreshTokenService {
-    private final RefreshTokenMapper refreshTokenMapper;
+
     private static final long REFRESH_DAYS = 7;
+    private static final int RAW_TOKEN_BYTES = 48;
+
+    private final RefreshTokenMapper refreshTokenMapper;
+    private final SecureRandom secureRandom;
 
     @Override
-    public RefreshToken create(Long userId) {
+    public String create(Long userId) {
+        String rawToken = generateRawToken();
+        String tokenHash = hashToken(rawToken);
+
         RefreshToken rt = new RefreshToken();
         rt.setUserId(userId);
-        rt.setToken(UUID.randomUUID().toString());
+        rt.setToken(tokenHash);
         rt.setExpireAt(LocalDateTime.now().plusDays(REFRESH_DAYS));
         rt.setRevoked(TokenRevoked.VALID);
         rt.setCreateTime(LocalDateTime.now());
         refreshTokenMapper.insert(rt);
-        return rt;
+        return rawToken;
     }
 
     @Override
-    public RefreshToken getValidByToken(String refreshToken) {
-        return refreshTokenMapper.selectOne(
-                new LambdaQueryWrapper<RefreshToken>()
-                        .eq(RefreshToken::getToken, refreshToken)
+    public RefreshToken rotate(String refreshToken) {
+        String tokenHash = hashToken(refreshToken);
+        LocalDateTime now = LocalDateTime.now();
+
+        int updated = refreshTokenMapper.update(null,
+                new LambdaUpdateWrapper<RefreshToken>()
+                        .eq(RefreshToken::getToken, tokenHash)
                         .eq(RefreshToken::getRevoked, TokenRevoked.VALID)
-                        .gt(RefreshToken::getExpireAt, LocalDateTime.now())
-        );
+                        .gt(RefreshToken::getExpireAt, now)
+                        .set(RefreshToken::getRevoked, TokenRevoked.REVOKED));
+        if (updated != 1) {
+            throw new BusinessException("refreshToken无效或已过期，请重新登录");
+        }
+
+        RefreshToken revokedToken = refreshTokenMapper.selectOne(
+                new LambdaQueryWrapper<RefreshToken>()
+                        .eq(RefreshToken::getToken, tokenHash));
+        if (revokedToken == null) {
+            throw new BusinessException("refreshToken无效或已过期，请重新登录");
+        }
+        return revokedToken;
     }
 
     @Override
     public void revoke(String refreshToken) {
+        String tokenHash = hashToken(refreshToken);
         refreshTokenMapper.update(null,
                 new LambdaUpdateWrapper<RefreshToken>()
-                        .eq(RefreshToken::getToken, refreshToken)
-                        .set(RefreshToken::getRevoked, TokenRevoked.REVOKED)
-        );
+                        .eq(RefreshToken::getToken, tokenHash)
+                        .eq(RefreshToken::getRevoked, TokenRevoked.VALID)
+                        .set(RefreshToken::getRevoked, TokenRevoked.REVOKED));
     }
 
     @Override
@@ -56,24 +84,7 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         refreshTokenMapper.update(null,
                 new LambdaUpdateWrapper<RefreshToken>()
                         .eq(RefreshToken::getUserId, userId)
-                        .set(RefreshToken::getRevoked, TokenRevoked.REVOKED)
-        );
-    }
-
-    @Override
-    public String getTokenByUserId(Long userId) {
-        RefreshToken refreshToken = refreshTokenMapper.selectOne(
-                Wrappers.lambdaQuery(RefreshToken.class)
-                        .eq(RefreshToken::getUserId, userId)
-                        .eq(RefreshToken::getRevoked, TokenRevoked.VALID)
-                        .gt(RefreshToken::getExpireAt, LocalDateTime.now())
-                        .orderByDesc(RefreshToken::getExpireAt)
-                        .last("LIMIT 1")
-        );
-        if(refreshToken == null){
-            return null;
-        }
-        return refreshToken.getToken();
+                        .set(RefreshToken::getRevoked, TokenRevoked.REVOKED));
     }
 
     @Override
@@ -92,12 +103,10 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
 
     @Override
     public void deleteCurrentToken(Long currentUserId, String refreshToken) {
+        String tokenHash = hashToken(refreshToken);
         RefreshToken tokenEntity = refreshTokenMapper.selectOne(
                 Wrappers.lambdaQuery(RefreshToken.class)
-                        .eq(RefreshToken::getToken, refreshToken)
-        );
-        // token 不存在（已过期被清理 / 客户端传错）时直接当作已退出，保证登出幂等，
-        // 否则这里会 NPE，客户端拿到 500 而不是正常的登出成功
+                        .eq(RefreshToken::getToken, tokenHash));
         if (tokenEntity == null) {
             return;
         }
@@ -106,5 +115,21 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         }
         tokenEntity.setRevoked(TokenRevoked.REVOKED);
         refreshTokenMapper.updateById(tokenEntity);
+    }
+
+    private String generateRawToken() {
+        byte[] bytes = new byte[RAW_TOKEN_BYTES];
+        secureRandom.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String hashToken(String rawToken) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(rawToken.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("当前 JDK 不支持 SHA-256", e);
+        }
     }
 }

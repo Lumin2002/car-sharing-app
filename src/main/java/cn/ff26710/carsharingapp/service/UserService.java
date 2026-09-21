@@ -15,6 +15,7 @@ import java.util.Optional;
 public interface UserService extends IService<User> {
     void addUser(UserAddDTO dto);
     void updateUser(Long id, UserUpdateDTO dto);
+    void updateAvatar(String avatarUrl);
     void banUser(Long userId, UserStatus status);
     Optional<User> getUserByPhone(String phone);
     boolean existByPhone(String phone);

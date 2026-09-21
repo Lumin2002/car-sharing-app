@@ -50,7 +50,8 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
     private BigDecimal overtimeFeePerHour;
     @Value("${app.rental.overtime-grace-minutes:30}")
     private long overtimeGraceMinutes;
-
+    @Value("${app.rental.overtime-max-charge-minutes:240}")
+    private long overtimeMaxChargeMinutes;
     @Override
     @Transactional(rollbackFor = Exception.class)
     public RentalSettlement createForOrder(RentalOrder order) {
@@ -67,34 +68,15 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
         int exceedMileage = Math.max(0, actualMileage - preMileage - freeMileage);
         BigDecimal exceedFee = exceedMileageFee.multiply(BigDecimal.valueOf(exceedMileage))
                 .setScale(2, RoundingMode.HALF_UP);
-        // 超时分钟
-        long overtimeMinutes = 0;
-        if (order.getActualReturnTime() != null && order.getEndTime() != null) {
-            long minutes = Duration.between(order.getEndTime(), order.getActualReturnTime()).toMinutes();
-            overtimeMinutes = Math.max(0, minutes - overtimeGraceMinutes);
-        }
-        // 超时小时
-        long overtimeHours = 0;
-        // 其它费用(租金)
-        BigDecimal otherFee = BigDecimal.ZERO;
-        // 单日租金
-        BigDecimal dailyPrice = Optional.ofNullable(order.getDailyPrice()).orElse(BigDecimal.ZERO);
-        if (overtimeMinutes > 0) {
-            long calcHours = (overtimeMinutes + 59) / 60;
-            if (calcHours > 4) {
-                long overtimeRealDays = (calcHours + 23) / 24;
-                otherFee = dailyPrice.multiply(BigDecimal.valueOf(overtimeRealDays))
-                        .setScale(2, RoundingMode.HALF_UP);
-            } else {
-                overtimeHours = calcHours;
-            }
-        }
-        // 超时费
-        BigDecimal overtimeFee = overtimeFeePerHour.multiply(BigDecimal.valueOf(overtimeHours))
-                .setScale(2, RoundingMode.HALF_UP);
-        BigDecimal extraFee = exceedFee.add(overtimeFee).add(otherFee);
 
-        BigDecimal rentAmount = order.getRentAmount() == null ? BigDecimal.ZERO : order.getRentAmount();
+        LateFeeBreakdown lateFee = calculateLateFee(order);
+        BigDecimal bookedRent = order.getRentAmount() == null ? BigDecimal.ZERO : order.getRentAmount();
+        BigDecimal paidRent = order.getPaidRent() == null ? BigDecimal.ZERO : order.getPaidRent();
+        BigDecimal finalRent = bookedRent.add(lateFee.extraRentFee());
+        BigDecimal unpaidRent = finalRent.subtract(paidRent).max(BigDecimal.ZERO);
+        BigDecimal overtimeFee = lateFee.overtimeFee();
+
+        BigDecimal extraFee = exceedFee.add(overtimeFee).add(unpaidRent);
         BigDecimal originalDeposit = order.getDeposit() == null ? BigDecimal.ZERO : order.getDeposit();
 
         BigDecimal deductAmount = extraFee.min(originalDeposit);
@@ -107,18 +89,19 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
         settlement.setActualMileage(actualMileage);
         settlement.setExceedMileage(exceedMileage);
         settlement.setExceedMileageFee(exceedFee);
-        settlement.setOvertimeMinute(overtimeMinutes);
+        settlement.setOvertimeMinute(lateFee.chargeableLateMinutes());
         settlement.setOvertimeFee(overtimeFee);
-        settlement.setOtherFee(otherFee);
-        settlement.setRentAmount(rentAmount);
-        settlement.setTotalSettleAmount(rentAmount.add(extraFee));
-        order.setTotalAmount(rentAmount.add(extraFee));
+        settlement.setOtherFee(lateFee.extraRentFee());
+        settlement.setRentAmount(finalRent);
+        settlement.setTotalSettleAmount(finalRent.add(exceedFee).add(overtimeFee));
+        order.setTotalAmount(finalRent.add(exceedFee).add(overtimeFee));
         rentalOrderMapper.updateById(order);
         settlement.setOriginalDeposit(originalDeposit);
         settlement.setDepositDeductAmount(deductAmount);
         settlement.setDepositRefundAmount(depositRefund);
         settlement.setStatus(SettlementStatus.PENDING);
-        settlement.setRemark("超里程 " + exceedMileage + "km，超时 " + overtimeMinutes + " 分钟");
+        settlement.setRemark("超里程 " + exceedMileage + "km，超时 "
+                + lateFee.chargeableLateMinutes() + " 分钟");
         settlement.setCreateTime(LocalDateTime.now());
         save(settlement);
 
@@ -166,7 +149,7 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
                 .eq(Payment::getPayType, PayType.DEPOSIT_FROZEN)
                 .eq(Payment::getStatus, PaymentStatus.SUCCESS)
                 .one();
-        if (depositPayment == null) {
+        if (order.getDeposit().compareTo(BigDecimal.ZERO) != 0 && depositPayment == null) {
             throw new BusinessException("未找到可退还的押金支付单");
         }
         BigDecimal refundAmount = settlement.getDepositRefundAmount() == null
@@ -184,7 +167,6 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
                 .set(RentalSettlement::getStatus, SettlementStatus.FINISHED)
                 .update();
 
-        // 结算完成通知：总额一条，扣罚/退还各一条（金额为 0 的不发，避免刷屏）
         rentalNoticeProducer.publish(RentalNoticeEvent.of(
                 order.getUserId(), order.getOrderId(), order.getOrderNo(),
                 MessageType.ORDER_SETTLED, "还车结算完成",
@@ -237,5 +219,46 @@ public class RentalSettlementServiceImpl extends ServiceImpl<RentalSettlementMap
         if (loginUser != null && !order.getUserId().equals(loginUser.getUserId())) {
             throw new BusinessException(403, "无权查看该订单的结算单");
         }
+    }
+
+    private LateFeeBreakdown calculateLateFee(RentalOrder order) {
+        if (order.getActualReturnTime() == null
+                || order.getEndTime() == null
+                || !order.getActualReturnTime().isAfter(order.getEndTime())) {
+            return new LateFeeBreakdown(0, BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+
+        long lateRawMinutes = Duration.between(order.getEndTime(), order.getActualReturnTime()).toMinutes();
+        long chargeableLateMinutes = Math.max(0, lateRawMinutes - overtimeGraceMinutes);
+
+        long fullOverdueDays = chargeableLateMinutes / 1440;
+        long remainderMinutes = chargeableLateMinutes % 1440;
+        int extraRentDays = (int) fullOverdueDays;
+        BigDecimal overtimeFee = BigDecimal.ZERO;
+
+        if (remainderMinutes > 0) {
+            if (remainderMinutes > overtimeMaxChargeMinutes) {
+                // 超过 4 小时但不足一整天：默认多付 1 天租金。
+                extraRentDays += 1;
+            } else {
+                long overtimeHours = (remainderMinutes + 59) / 60;
+                overtimeFee = overtimeFeePerHour
+                        .multiply(BigDecimal.valueOf(overtimeHours))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+        }
+
+        BigDecimal extraRentFee = order.getDailyPrice() == null
+                ? BigDecimal.ZERO
+                : order.getDailyPrice()
+                .multiply(BigDecimal.valueOf(extraRentDays))
+                .setScale(2, RoundingMode.HALF_UP);
+
+        return new LateFeeBreakdown(chargeableLateMinutes, extraRentFee, overtimeFee);
+    }
+
+    private record LateFeeBreakdown(long chargeableLateMinutes,
+                                    BigDecimal extraRentFee,
+                                    BigDecimal overtimeFee) {
     }
 }

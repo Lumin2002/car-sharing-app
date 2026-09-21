@@ -8,11 +8,11 @@ import cn.ff26710.carsharingapp.entity.enums.*;
 import cn.ff26710.carsharingapp.exception.BusinessException;
 import cn.ff26710.carsharingapp.mapper.PaymentMapper;
 import cn.ff26710.carsharingapp.mapper.RentalOrderMapper;
-import cn.ff26710.carsharingapp.mq.producer.RentalNoticeProducer;
 import cn.ff26710.carsharingapp.mq.event.RentalNoticeEvent;
-import cn.ff26710.carsharingapp.service.PaymentService;
+import cn.ff26710.carsharingapp.mq.producer.RentalNoticeProducer;
 import cn.ff26710.carsharingapp.service.PaymentRecordService;
 import cn.ff26710.carsharingapp.service.PaymentRecordService.PreparedPayment;
+import cn.ff26710.carsharingapp.service.PaymentService;
 import cn.ff26710.carsharingapp.service.WeChatOAuthService;
 import cn.ff26710.carsharingapp.service.WeChatPayService;
 import cn.ff26710.carsharingapp.utils.AmountUtil;
@@ -20,9 +20,11 @@ import cn.ff26710.carsharingapp.utils.SecurityUtil;
 import cn.ff26710.carsharingapp.vo.PayResultVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +32,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentServiceImpl extends ServiceImpl<PaymentMapper, Payment> implements PaymentService {
@@ -51,7 +54,6 @@ public class PaymentServiceImpl extends ServiceImpl<PaymentMapper, Payment> impl
 
         switch (dto.getPayMethod()) {
             case BALANCE -> {
-                // 余额支付没有外部调用，直接在一个短事务里置为成功
                 return paymentRecordService.markBalancePaid(prepared);
             }
             case WECHAT -> {
@@ -89,7 +91,7 @@ public class PaymentServiceImpl extends ServiceImpl<PaymentMapper, Payment> impl
     public IPage<Payment> pageMy(long pageNum, long pageSize, PaymentStatus status) {
         User loginUser = SecurityUtil.getLoginUser();
         if (loginUser == null) {
-            throw new BusinessException(401,"未登录");
+            throw new BusinessException(401, "未登录");
         }
         List<RentalOrder> orders = rentalOrderMapper.selectList(
                 new LambdaQueryWrapper<RentalOrder>()
@@ -135,26 +137,60 @@ public class PaymentServiceImpl extends ServiceImpl<PaymentMapper, Payment> impl
         if (payment == null) {
             throw new BusinessException("支付单不存在");
         }
+        if (PaymentStatus.SUCCESS.equals(payment.getStatus())
+                || PaymentStatus.REFUNDED.equals(payment.getStatus())) {
+            return;
+        }
         if (amountCent == null || payment.getAmount().compareTo(AmountUtil.fenToYuan(amountCent)) != 0) {
             throw new BusinessException("支付金额校验失败");
         }
-        payment.setThirdTradeNo(wxTradeNo);
-        payment.setStatus(PaymentStatus.SUCCESS);
-        payment.setRawCallback(rawCallback);
-        payment.setCallbackTime(LocalDateTime.now());
-        payment.setUpdateTime(LocalDateTime.now());
-        updateById(payment);
+
+        LocalDateTime now = LocalDateTime.now();
+        boolean updated = lambdaUpdate()
+                .eq(Payment::getId, payment.getId())
+                .eq(Payment::getStatus, PaymentStatus.INIT)
+                .set(Payment::getThirdTradeNo, wxTradeNo)
+                .set(Payment::getStatus, PaymentStatus.SUCCESS)
+                .set(Payment::getRawCallback, rawCallback)
+                .set(Payment::getCallbackTime, now)
+                .set(Payment::getUpdateTime, now)
+                .update();
+        if (!updated) {
+            return;
+        }
+
         RentalOrder order = rentalOrderMapper.selectById(payment.getOrderId());
         switch (payment.getPayType()) {
-            case RENT_PAY -> rentalNoticeProducer.publish(RentalNoticeEvent.of(
-                    order.getUserId(), payment.getOrderId(), payment.getOrderNo(),
-                    MessageType.ORDER_PAID, "租车订单支付成功",
-                    "订单【" + payment.getOrderNo() + "】租金已支付。"));
-            case DEPOSIT_FROZEN -> rentalNoticeProducer.publish(RentalNoticeEvent.of(
-                    order.getUserId(), payment.getOrderId(), payment.getOrderNo(),
-                    MessageType.DEPOSIT_FROZEN, "租车订单押金支付成功",
-                    "订单【" + payment.getOrderNo() + "】押金已支付。"));
+            case RENT_PAY -> {
+                rentalOrderMapper.update(Wrappers.lambdaUpdate(RentalOrder.class)
+                        .eq(RentalOrder::getOrderId, order.getOrderId())
+                        .set(RentalOrder::getPaidRent, payment.getAmount()));
+                rentalNoticeProducer.publish(RentalNoticeEvent.of(
+                        order.getUserId(), payment.getOrderId(), payment.getOrderNo(),
+                        MessageType.ORDER_PAID, "租车订单支付成功",
+                        "订单【" + payment.getOrderNo() + "】租金已支付。"));
+            }
+            case DEPOSIT_FROZEN -> {
+                rentalOrderMapper.update(Wrappers.lambdaUpdate(RentalOrder.class)
+                        .eq(RentalOrder::getOrderId, order.getOrderId())
+                        .set(RentalOrder::getPaidDeposit, payment.getAmount()));
+                rentalNoticeProducer.publish(RentalNoticeEvent.of(
+                        order.getUserId(), payment.getOrderId(), payment.getOrderNo(),
+                        MessageType.DEPOSIT_FROZEN, "租车订单押金支付成功",
+                        "订单【" + payment.getOrderNo() + "】押金已支付。"));
+            }
         }
+    }
+
+    @Override
+    public void markPaymentFailed(Long paymentId, String tradeState) {
+        lambdaUpdate()
+                .eq(Payment::getId, paymentId)
+                .eq(Payment::getStatus, PaymentStatus.INIT)
+                .set(Payment::getStatus, PaymentStatus.FAIL)
+                .set(Payment::getRawCallback, "对账查询状态: " + tradeState)
+                .set(Payment::getUpdateTime, LocalDateTime.now())
+                .update();
     }
 
     private void checkOwnerOrAdmin(RentalOrder order) {

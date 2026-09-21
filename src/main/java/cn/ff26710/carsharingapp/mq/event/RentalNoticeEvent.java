@@ -1,7 +1,6 @@
 package cn.ff26710.carsharingapp.mq.event;
 
 import cn.ff26710.carsharingapp.entity.enums.MessageType;
-import cn.ff26710.carsharingapp.mq.MQEvent;
 import lombok.Data;
 
 import java.io.Serializable;

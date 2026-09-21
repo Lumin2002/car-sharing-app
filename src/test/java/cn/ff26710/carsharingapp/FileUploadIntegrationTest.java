@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -138,6 +139,31 @@ class FileUploadIntegrationTest extends IntegrationTestBase {
         assertThat(url).startsWith("/uploads/other/");
 
         Files.deleteIfExists(toLocalPath(url));
+    }
+
+    @Test
+    @DisplayName("实名/驾照/KYC 证件图片匿名不可访问，登录后可以访问")
+    void kycFileRequiresAuthentication() throws Exception {
+        var admin = createAdmin();
+        String token = login(admin.phone(), admin.password());
+
+        for (String biz : List.of("realname", "license", "kyc")) {
+            String url = "/uploads/" + biz + "/test-idcard.jpg";
+            Path kycFile = UPLOAD_ROOT.resolve(biz).resolve("test-idcard.jpg");
+            Files.createDirectories(kycFile.getParent());
+            Files.write(kycFile, "sensitive-kyc-bytes".getBytes());
+
+            try {
+                assertThat(perform(get(url)).getResponse().getStatus())
+                        .as("匿名不应能访问 %s", url)
+                        .isEqualTo(401);
+                assertThat(perform(withToken(get(url), token)).getResponse().getStatus())
+                        .as("登录后应能访问 %s", url)
+                        .isEqualTo(200);
+            } finally {
+                Files.deleteIfExists(kycFile);
+            }
+        }
     }
 
     private JsonNode upload(String fileName, String contentType, byte[] content, String biz, String token)

@@ -19,7 +19,10 @@ import cn.ff26710.carsharingapp.mapper.StoreMapper;
 import cn.ff26710.carsharingapp.mapper.UserMapper;
 import cn.ff26710.carsharingapp.mq.producer.RentalNoticeProducer;
 import cn.ff26710.carsharingapp.tasks.CleanExpiredTokenTask;
+import cn.ff26710.carsharingapp.tasks.OutboxPublishTask;
+import cn.ff26710.carsharingapp.tasks.PaymentReconcileTask;
 import cn.ff26710.carsharingapp.tasks.RentalOrderScheduleTask;
+import cn.ff26710.carsharingapp.tasks.RefundReconcileTask;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -101,10 +104,16 @@ public abstract class IntegrationTestBase {
     protected RentalOrderScheduleTask rentalOrderScheduleTask;
     @MockBean
     protected CleanExpiredTokenTask cleanExpiredTokenTask;
+    @MockBean
+    protected OutboxPublishTask outboxPublishTask;
+    @MockBean
+    protected RefundReconcileTask refundReconcileTask;
+    @MockBean
+    protected PaymentReconcileTask paymentReconcileTask;
 
     /**
      * MQ 生产者替换成 mock。
-     * 否则每个用例的下单/支付/取消都会真的往 RabbitMQ 投消息 —— 测试既依赖了 broker，
+     * 否则每个用例的下单/支付/取消都会真的往 RabbitMQ 投消息 —— 测试既依赖了 callback，
      * 又会在队列里堆积没人消费的消息。需要断言「发了什么事件」的用例直接 verify 这个 mock。
      */
     @MockBean

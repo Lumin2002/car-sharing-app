@@ -49,14 +49,22 @@ public class AuthServiceImpl implements AuthService {
     private static final long LOCK_SECONDS = 600;
     private static final long FAIL_COUNT_TTL = 600;
 
-    private static final String SMS_CAPTCHA_KEY = "captcha:sms:";
+    private static final String REGISTER_SMS_CODE_KEY = "captcha:sms:register:";
+    private static final String REGISTER_FAIL_COUNT_KEY = "register:fail:count:";
+    private static final String REGISTER_LOCK_KEY = "register:lock:";
+
     private static final String LOGIN_FAIL_COUNT_KEY = "login:fail:count:";
     private static final String LOGIN_LOCK_KEY = "login:lock:";
+
+    private static final String RESET_PASSWORD_SMS_CODE_KEY = "captcha:sms:reset-password:";
+    private static final String RESET_PASSWORD_FAIL_COUNT_KEY = "reset-password:fail:count:";
+    private static final String RESET_PASSWORD_LOCK_KEY = "reset-password:lock:";
 
     @Override
     public void register(RegisterDTO dto) {
         String phoneReg = "^1[3-9]\\d{9}$";
-        if (!ReUtil.isMatch(phoneReg, dto.getPhone())) {
+        String phone = dto.getPhone();
+        if (!ReUtil.isMatch(phoneReg, phone)) {
             throw new BusinessException("手机号不正确");
         }
         if (!isValidPassword(dto.getPassword())) {
@@ -65,8 +73,32 @@ public class AuthServiceImpl implements AuthService {
         if (!dto.getConfirmPassword().equals(dto.getPassword())) {
             throw new BusinessException("两次的密码不一致");
         }
-        if (userService.existByPhone(dto.getPhone())) {
+        if (userService.existByPhone(phone)) {
             throw new BusinessException("该手机号已注册");
+        }
+        String lockKey = REGISTER_LOCK_KEY + phone;
+        String countKey = REGISTER_FAIL_COUNT_KEY + phone;
+        if (stringRedisTemplate.hasKey(lockKey)) {
+            throw new BusinessException("注册失败次数过多，请10分钟后重试");
+        }
+        captchaService.verifyImageCaptcha(dto.getImageCode(), dto.getImageUuid());
+        String smsKey = REGISTER_SMS_CODE_KEY + phone;
+        String cacheCode = stringRedisTemplate.opsForValue().get(smsKey);
+        if (cacheCode == null) {
+            throw new BusinessException("短信验证码失效，请重新获取验证码");
+        }
+        if (!cacheCode.equals(dto.getSmsCode())) {
+            Long count = stringRedisTemplate.opsForValue().increment(countKey, 1);
+            if (count == 1) {
+                stringRedisTemplate.expire(countKey, FAIL_COUNT_TTL, TimeUnit.SECONDS);
+            }
+            log.warn("手机号{}注册失败，当前失败次数：{}", phone, count);
+
+            if (count >= MAX_FAIL_COUNT) {
+                stringRedisTemplate.opsForValue().set(lockKey, "1", LOCK_SECONDS, TimeUnit.SECONDS);
+                throw new BusinessException("连续输入错误验证码失败达到" + MAX_FAIL_COUNT + "次，注册操作临时锁定10分钟");
+            }
+            throw new BusinessException("短信验证码错误");
         }
         User user = new User();
         user.setUsername(dto.getUsername());
@@ -77,18 +109,20 @@ public class AuthServiceImpl implements AuthService {
         user.setCreateTime(LocalDateTime.now());
         user.setUserVersion(1);
         userService.save(user);
+        stringRedisTemplate.delete(smsKey);
+        stringRedisTemplate.delete(lockKey);
+        stringRedisTemplate.delete(countKey);
     }
 
     @Override
     public LoginVO login(LoginDTO dto) {
         Authentication authentication;
+        String phone = dto.getPhone();
+        String lockKey = LOGIN_LOCK_KEY + phone;
+        if (stringRedisTemplate.hasKey(lockKey)) {
+            throw new BusinessException("登录失败次数过多，请10分钟后重试");
+        }
         if ("PASSWORD".equals(dto.getLoginType())) {
-            String phone = dto.getPhone();
-            String lockKey = LOGIN_LOCK_KEY + phone;
-            if (stringRedisTemplate.hasKey(lockKey)) {
-                throw new BusinessException("登录失败次数过多，请10分钟后重试");
-            }
-
             captchaService.verifyImageCaptcha(dto.getImageCode(), dto.getImageUuid());
             try {
                 UsernamePasswordAuthenticationToken token =
@@ -106,15 +140,32 @@ public class AuthServiceImpl implements AuthService {
 
                 if (count >= MAX_FAIL_COUNT) {
                     stringRedisTemplate.opsForValue().set(lockKey, "1", LOCK_SECONDS, TimeUnit.SECONDS);
-                    throw new BusinessException("连续登录失败达到" + MAX_FAIL_COUNT + "次，账号临时锁定10分钟");
+                    throw new BusinessException("连续登录失败达到" + MAX_FAIL_COUNT + "次，登录操作临时锁定10分钟");
                 }
                 throw new BusinessException("手机号或密码错误，剩余尝试次数：" + (MAX_FAIL_COUNT - count));
             }
 
         } else if ("SMS_CODE".equals(dto.getLoginType())) {
-            SmsCodeAuthenticationToken smsToken =
-                    new SmsCodeAuthenticationToken(dto.getPhone(), dto.getSmsCode());
-            authentication = authenticationManager.authenticate(smsToken);
+            try {
+                SmsCodeAuthenticationToken smsToken =
+                        new SmsCodeAuthenticationToken(dto.getPhone(), dto.getSmsCode());
+                authentication = authenticationManager.authenticate(smsToken);
+
+                stringRedisTemplate.delete(LOGIN_FAIL_COUNT_KEY + phone);
+            } catch (BadCredentialsException e) {
+                String countKey = LOGIN_FAIL_COUNT_KEY + phone;
+                Long count = stringRedisTemplate.opsForValue().increment(countKey, 1);
+                if (count == 1) {
+                    stringRedisTemplate.expire(countKey, FAIL_COUNT_TTL, TimeUnit.SECONDS);
+                }
+                log.warn("手机号{}验证码登录失败，当前失败次数：{}", phone, count);
+
+                if (count >= MAX_FAIL_COUNT) {
+                    stringRedisTemplate.opsForValue().set(lockKey, "1", LOCK_SECONDS, TimeUnit.SECONDS);
+                    throw new BusinessException("连续登录失败达到" + MAX_FAIL_COUNT + "次，账号临时锁定10分钟");
+                }
+                throw new BusinessException("手机号或验证码错误，剩余尝试次数：" + (MAX_FAIL_COUNT - count));
+            }
         } else {
             throw new BusinessException("不支持的登录类型");
         }
@@ -133,11 +184,12 @@ public class AuthServiceImpl implements AuthService {
                 .update();
 
         String accessToken = jwtUtil.generateToken(user.getUserId(), user.getRole(), user.getUserVersion());
-        RefreshToken rt = refreshTokenService.create(user.getUserId());
+        refreshTokenService.revokeAllByUserId(user.getUserId());
+        String refreshToken = refreshTokenService.create(user.getUserId());
 
         LoginVO loginVO = new LoginVO();
         loginVO.setAccessToken(accessToken);
-        loginVO.setRefreshToken(rt.getToken());
+        loginVO.setRefreshToken(refreshToken);
         return loginVO;
     }
 
@@ -151,26 +203,20 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public LoginVO refresh(String refreshToken) {
-        RefreshToken rt = refreshTokenService.getValidByToken(refreshToken);
-        if (rt == null) {
-            throw new BusinessException("refreshToken无效或已过期，请重新登录");
-        }
+        RefreshToken rt = refreshTokenService.rotate(refreshToken);
 
         User user = userService.getById(rt.getUserId());
         if (user == null || !user.getStatus().equals(UserStatus.ENABLED)) {
-            refreshTokenService.revoke(refreshToken);
             throw new BusinessException("用户不存在或已被禁用");
         }
 
-        refreshTokenService.revoke(refreshToken);
-        RefreshToken newRt = refreshTokenService.create(user.getUserId());
+        String newRefreshToken = refreshTokenService.create(user.getUserId());
         String newAccessToken = jwtUtil.generateToken(user.getUserId(), user.getRole(), user.getUserVersion());
 
         LoginVO vo = new LoginVO();
         vo.setAccessToken(newAccessToken);
-        vo.setRefreshToken(newRt.getToken());
+        vo.setRefreshToken(newRefreshToken);
         return vo;
     }
 
@@ -188,25 +234,39 @@ public class AuthServiceImpl implements AuthService {
     @Transactional(rollbackFor = Exception.class)
     public void resetPassword(ResetPasswordDTO dto) {
         String phone = dto.getPhone();
-
-        captchaService.verifyImageCaptcha(dto.getImageCode(), dto.getImageUuid());
-
-        String smsKey = SMS_CAPTCHA_KEY + phone;
-        String cacheCode = stringRedisTemplate.opsForValue().get(smsKey);
-        if (cacheCode == null || !cacheCode.equals(dto.getSmsCode())) {
-            throw new BusinessException("短信验证码错误或已过期");
-        }
-        stringRedisTemplate.delete(smsKey);
-
         User user = userService.lambdaQuery()
                 .eq(User::getPhone, phone)
                 .one();
+
+        captchaService.verifyImageCaptcha(dto.getImageCode(), dto.getImageUuid());
+
+        String smsKey = RESET_PASSWORD_SMS_CODE_KEY + phone;
+        String cacheCode = stringRedisTemplate.opsForValue().get(smsKey);
         if (user == null) {
             throw new BusinessException("该手机号未注册");
         }
 
         if (!isValidPassword(dto.getNewPassword())) {
             throw new BusinessException("密码至少8位，且需同时包含大写字母、小写字母和数字");
+        }
+        if (cacheCode == null) {
+            throw new BusinessException("短信验证码失效，请重新获取验证码");
+        }
+
+        String lockKey = RESET_PASSWORD_LOCK_KEY + phone;
+        String countKey = RESET_PASSWORD_FAIL_COUNT_KEY + phone;
+        if (!cacheCode.equals(dto.getSmsCode())) {
+            Long count = stringRedisTemplate.opsForValue().increment(countKey, 1);
+            if (count == 1) {
+                stringRedisTemplate.expire(countKey, FAIL_COUNT_TTL, TimeUnit.SECONDS);
+            }
+            log.warn("手机号{}重置密码失败，当前失败次数：{}", phone, count);
+
+            if (count >= MAX_FAIL_COUNT) {
+                stringRedisTemplate.opsForValue().set(lockKey, "1", LOCK_SECONDS, TimeUnit.SECONDS);
+                throw new BusinessException("连续输入错误验证码失败达到" + MAX_FAIL_COUNT + "次，重置操作临时锁定10分钟");
+            }
+            throw new BusinessException("短信验证码错误");
         }
 
         String encodePwd = passwordEncoder.encode(dto.getNewPassword());
@@ -217,6 +277,9 @@ public class AuthServiceImpl implements AuthService {
                 .set(User::getUserVersion, user.getUserVersion() + 1) // version+1，旧JWT失效
                 .update();
 
+        stringRedisTemplate.delete(smsKey);
+        stringRedisTemplate.delete(lockKey);
+        stringRedisTemplate.delete(countKey);
         stringRedisTemplate.delete(LOGIN_FAIL_COUNT_KEY + phone);
         stringRedisTemplate.delete(LOGIN_LOCK_KEY + phone);
         refreshTokenService.revokeAllByUserId(user.getUserId());

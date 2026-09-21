@@ -32,7 +32,7 @@ public class SmsCodeAuthenticationProvider implements AuthenticationProvider {
         String phone = token.getPhone();
         String smsCode = (String) token.getCredentials();
 
-        String redisKey = "captcha:sms:" + phone;
+        String redisKey = "captcha:sms:login:" + phone;
         String realCode = stringRedisTemplate.opsForValue().get(redisKey);
         if (realCode == null || !realCode.equals(smsCode)) {
             throw new BadCredentialsException("验证码错误或已过期");

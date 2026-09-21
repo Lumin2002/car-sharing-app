@@ -56,7 +56,6 @@ public class WxPayNoticeConsumer {
             channel.basicAck(tag, false);
         } catch (Exception e) {
             log.error("消费微信支付消息异常 paymentNo={}", paymentNo, e);
-            // nack，requeue=false → 转发死信队列，和Rabbit配置匹配
             channel.basicNack(tag, false, false);
         }
     }
@@ -84,7 +83,6 @@ public class WxPayNoticeConsumer {
             channel.basicAck(tag, false);
         } catch (Exception e) {
             log.error("消费微信支付退款消息异常 refundNo={}", refundNo, e);
-            // nack，requeue=false → 转发死信队列，和Rabbit配置匹配
             channel.basicNack(tag, false, false);
         }
     }

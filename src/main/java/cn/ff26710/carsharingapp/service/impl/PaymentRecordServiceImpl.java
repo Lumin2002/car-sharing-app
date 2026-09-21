@@ -65,8 +65,9 @@ public class PaymentRecordServiceImpl extends ServiceImpl<PaymentMapper, Payment
     @Transactional(rollbackFor = Exception.class)
     public PayResultVO markBalancePaid(PreparedPayment prepared) {
         LocalDateTime now = LocalDateTime.now();
+        Payment payment = getById(prepared.paymentId());
         boolean updated = lambdaUpdate()
-                .eq(Payment::getId, prepared.paymentId())
+                .eq(Payment::getId, payment.getId())
                 .eq(Payment::getStatus, PaymentStatus.INIT)
                 .set(Payment::getPayMethod, PayMethod.BALANCE)
                 .set(Payment::getStatus, PaymentStatus.SUCCESS)
@@ -76,7 +77,14 @@ public class PaymentRecordServiceImpl extends ServiceImpl<PaymentMapper, Payment
         if (!updated) {
             throw new BusinessException("支付单状态已变更，请刷新后重试");
         }
-
+        switch (prepared.payType()) {
+            case RENT_PAY -> rentalOrderMapper.update(Wrappers.lambdaUpdate(RentalOrder.class)
+                    .eq(RentalOrder::getOrderId, prepared.orderId())
+                    .set(RentalOrder::getPaidRent, prepared.amount()));
+            case DEPOSIT_FROZEN -> rentalOrderMapper.update(Wrappers.lambdaUpdate(RentalOrder.class)
+                    .eq(RentalOrder::getOrderId, prepared.orderId())
+                    .set(RentalOrder::getPaidDeposit, prepared.amount()));
+        }
         notifyPaid(prepared);
         return buildResult(prepared.paymentNo(), PaymentStatus.SUCCESS, null);
     }
@@ -103,16 +111,10 @@ public class PaymentRecordServiceImpl extends ServiceImpl<PaymentMapper, Payment
         return lambdaQuery()
                 .eq(Payment::getOrderId, orderId)
                 .eq(Payment::getPayType, payType)
-                .eq(Payment::getStatus, PaymentStatus.SUCCESS)
+                .in(Payment::getStatus, PaymentStatus.SUCCESS, PaymentStatus.REFUNDED)
                 .exists();
     }
 
-    /**
-     * 查/建本次支付对应的 payment 行。
-     *
-     * <p>必须在事务内调用：依赖 {@code FOR UPDATE} 的悲观锁避免并发创建两条支付单，
-     * 30 分钟内复用同一条预支付单，超过则换新的 paymentNo 重新发起。
-     */
     private Payment getOrCreatePaymentRecord(RentalOrder order, PayType payType) {
         Payment payment = getOne(Wrappers.lambdaQuery(Payment.class)
                 .eq(Payment::getOrderId, order.getOrderId())
@@ -136,6 +138,14 @@ public class PaymentRecordServiceImpl extends ServiceImpl<PaymentMapper, Payment
             return payment;
         }
 
+        // 曾经失败或过期的支付单复用同一行，避免撞 uk_payment_order_type 唯一键。
+        if (payment != null
+                && (PaymentStatus.FAIL.equals(payment.getStatus())
+                || PaymentStatus.EXPIRED.equals(payment.getStatus()))) {
+            resetPaymentRecord(payment, now);
+            return payment;
+        }
+
         payment = new Payment();
         payment.setOrderId(order.getOrderId());
         payment.setOrderNo(order.getOrderNo());
@@ -153,6 +163,18 @@ public class PaymentRecordServiceImpl extends ServiceImpl<PaymentMapper, Payment
         payment.setUpdateTime(now);
         save(payment);
         return payment;
+    }
+
+    private void resetPaymentRecord(Payment payment, LocalDateTime now) {
+        payment.setPaymentNo(snowflakeUtil.generateNo("PAY"));
+        payment.setPayMethod(null);
+        payment.setStatus(PaymentStatus.INIT);
+        payment.setPrepayTime(null);
+        payment.setThirdTradeNo(null);
+        payment.setCallbackTime(null);
+        payment.setRawCallback(null);
+        payment.setUpdateTime(now);
+        updateById(payment);
     }
 
     private void notifyPaid(PreparedPayment prepared) {

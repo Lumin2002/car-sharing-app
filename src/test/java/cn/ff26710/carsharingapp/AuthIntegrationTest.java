@@ -1,10 +1,16 @@
 package cn.ff26710.carsharingapp;
 
+import cn.ff26710.carsharingapp.entity.RefreshToken;
+import cn.ff26710.carsharingapp.mapper.RefreshTokenMapper;
 import cn.ff26710.carsharingapp.support.IntegrationTestBase;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MvcResult;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -15,6 +21,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  */
 @DisplayName("认证与鉴权")
 class AuthIntegrationTest extends IntegrationTestBase {
+
+    @Autowired
+    private RefreshTokenMapper refreshTokenMapper;
 
     @Test
     @DisplayName("图形验证码接口返回 PNG 图片")
@@ -111,6 +120,59 @@ class AuthIntegrationTest extends IntegrationTestBase {
         // refreshToken 已被吊销，不能再换新令牌
         JsonNode refresh = toJson(perform(post("/api/auth/refresh").header("Refresh-Token", refreshToken)));
         assertThat(refresh.path("code").asInt()).isEqualTo(400);
+    }
+
+    @Test
+    @DisplayName("refresh token 只以 SHA-256 哈希入库")
+    void refreshTokenIsStoredAsHash() throws Exception {
+        var admin = createAdmin();
+
+        JsonNode res = loginRequest(admin.phone(), admin.password(), "abcd");
+        String rawToken = res.path("data").path("refreshToken").asText();
+
+        List<RefreshToken> stored = refreshTokenMapper.selectList(
+                new LambdaQueryWrapper<RefreshToken>()
+                        .eq(RefreshToken::getUserId, admin.user().getUserId()));
+
+        assertThat(stored).hasSize(1);
+        assertThat(stored.get(0).getToken())
+                .isNotEqualTo(rawToken)
+                .matches("[0-9a-f]{64}");
+    }
+
+    @Test
+    @DisplayName("再次登录会吊销旧的 refresh token")
+    void loginRevokesPreviousRefreshToken() throws Exception {
+        var admin = createAdmin();
+
+        JsonNode firstLogin = loginRequest(admin.phone(), admin.password(), "abcd");
+        JsonNode secondLogin = loginRequest(admin.phone(), admin.password(), "abcd");
+
+        String oldRefreshToken = firstLogin.path("data").path("refreshToken").asText();
+        String newRefreshToken = secondLogin.path("data").path("refreshToken").asText();
+        assertThat(newRefreshToken).isNotBlank();
+
+        JsonNode reuseOld = toJson(perform(
+                post("/api/auth/refresh").header("Refresh-Token", oldRefreshToken)));
+        assertThat(reuseOld.path("code").asInt()).isEqualTo(400);
+    }
+
+    @Test
+    @DisplayName("refresh token 轮换后旧 token 不能再次使用")
+    void refreshTokenRotationRejectsReuse() throws Exception {
+        var admin = createAdmin();
+
+        JsonNode loginRes = loginRequest(admin.phone(), admin.password(), "abcd");
+        String oldRefreshToken = loginRes.path("data").path("refreshToken").asText();
+
+        JsonNode rotated = toJson(perform(
+                post("/api/auth/refresh").header("Refresh-Token", oldRefreshToken)));
+        assertThat(rotated.path("code").asInt()).isEqualTo(200);
+        assertThat(rotated.path("data").path("refreshToken").asText()).isNotBlank();
+
+        JsonNode reuseOld = toJson(perform(
+                post("/api/auth/refresh").header("Refresh-Token", oldRefreshToken)));
+        assertThat(reuseOld.path("code").asInt()).isEqualTo(400);
     }
 
     @Test

@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS `refresh_token`
 (
     `id`          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
     `user_id`     BIGINT      NOT NULL COMMENT '所属用户ID',
-    `token`       VARCHAR(64) NOT NULL COMMENT '刷新令牌(UUID)',
+    `token`       VARCHAR(64) NOT NULL COMMENT '刷新令牌(SHA-256 哈希)',
     `expire_at`   DATETIME    NOT NULL COMMENT '过期时间',
     `revoked`     VARCHAR(20) NOT NULL DEFAULT 'VALID' COMMENT '状态: VALID/REVOKED',
     `create_time` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -128,11 +128,13 @@ CREATE TABLE IF NOT EXISTS `car`
     `mileage`           INT                     DEFAULT 0 COMMENT '里程数(km)',
     `insurance_expire`  DATETIME                DEFAULT NULL COMMENT '保险到期时间',
     `deleted`           TINYINT(1)     NOT NULL DEFAULT 0 COMMENT '逻辑删除：0 正常 / 1 已删除',
+    `active_vin`        VARCHAR(32)    GENERATED ALWAYS AS (CASE WHEN `deleted` = 0 THEN `vin` ELSE NULL END) STORED COMMENT '活跃VIN，用于唯一约束',
+    `active_plate_no`   VARCHAR(16)    GENERATED ALWAYS AS (CASE WHEN `deleted` = 0 THEN `plate_no` ELSE NULL END) STORED COMMENT '活跃车牌，用于唯一约束',
     `create_time`       DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`       DATETIME       NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (`car_id`),
-    UNIQUE KEY `uk_car_vin` (`vin`),
-    UNIQUE KEY `uk_car_plate_no` (`plate_no`),
+    UNIQUE KEY `uk_car_active_vin` (`active_vin`),
+    UNIQUE KEY `uk_car_active_plate_no` (`active_plate_no`),
     KEY `idx_car_status` (`status`),
     KEY `idx_car_store` (`store_id`)
 ) ENGINE = InnoDB
@@ -161,8 +163,9 @@ CREATE TABLE IF NOT EXISTS `car_attributes`
     `create_time`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted`             TINYINT(1) NOT NULL DEFAULT 0 COMMENT '逻辑删除：0 正常 / 1 已删除',
+    `active_car_id`       BIGINT GENERATED ALWAYS AS (CASE WHEN `deleted` = 0 THEN `car_id` ELSE NULL END) STORED COMMENT '活跃车辆ID，用于唯一约束',
     PRIMARY KEY (`attr_id`),
-    UNIQUE KEY `uk_car_attributes_car` (`car_id`)
+    UNIQUE KEY `uk_car_attributes_active_car` (`active_car_id`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci COMMENT ='车辆属性表';
@@ -190,8 +193,10 @@ CREATE TABLE IF NOT EXISTS `rental_order`
     `deposit`            DECIMAL(10, 2)          DEFAULT 0.00 COMMENT '押金(下单快照)',
     `rent_days`          INT                     DEFAULT 1 COMMENT '租用天数',
     `rent_amount`        DECIMAL(10, 2)          DEFAULT 0.00 COMMENT '租金',
+    `paid_rent`          DECIMAL(10, 2)          DEFAULT 0.00 COMMENT '已支付租金',
+    `paid_deposit`       DECIMAL(10, 2)          DEFAULT 0.00 COMMENT '已支付押金',
     `total_amount`       DECIMAL(10, 2)          DEFAULT 0.00 COMMENT '合计金额',
-    `status`             VARCHAR(20)    NOT NULL DEFAULT 'RENTING' COMMENT '状态: RENTING/OVERDUE/RETURNED/CANCELLED',
+    `status`             VARCHAR(20)    NOT NULL DEFAULT 'PENDING' COMMENT '状态: PENDING/RENTING/OVERDUE/RETURNED/CANCELLED',
     `mileage_before`     INT                     DEFAULT NULL COMMENT '取车里程',
     `mileage_after`      INT                     DEFAULT NULL COMMENT '还车里程',
     `remark`             VARCHAR(255)            DEFAULT NULL COMMENT '备注',
@@ -340,11 +345,15 @@ CREATE TABLE IF NOT EXISTS `refund`
     `create_time`     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `callback_time`   DATETIME               DEFAULT NULL COMMENT '回调时间',
     `raw_callback`    TEXT                   COMMENT '第三方回调原文',
+    `fail_reason`     VARCHAR(255)           DEFAULT NULL COMMENT '最近一次失败原因',
+    `retry_count`     INT           NOT NULL DEFAULT 0 COMMENT '已重试次数',
+    `next_retry_time` DATETIME               DEFAULT NULL COMMENT '下次重试时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_refund_no` (`refund_no`),
     UNIQUE KEY `uk_refund_order_type` (`order_id`, `refund_type`),
     KEY `idx_refund_payment` (`payment_id`),
-    KEY `idx_refund_status` (`status`)
+    KEY `idx_refund_status` (`status`),
+    KEY `idx_refund_retry` (`status`, `next_retry_time`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci COMMENT ='退款/押金解冻表';
@@ -382,6 +391,29 @@ CREATE TABLE IF NOT EXISTS `rental_settlement`
   COLLATE = utf8mb4_unicode_ci COMMENT ='还车结算表';
 
 -- -----------------------------------------------------------------------------
+-- 本地消息表（Outbox）
+-- 事务内先写这里，事务提交后由定时任务投递到 RabbitMQ。
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `outbox_message`
+(
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `msg_id`       VARCHAR(64)  NOT NULL COMMENT '消息ID，用于 CorrelationData',
+    `exchange`     VARCHAR(100) NOT NULL COMMENT '目标交换机',
+    `routing_key`  VARCHAR(100) NOT NULL COMMENT '路由键',
+    `payload`      TEXT         NOT NULL COMMENT 'JSON 消息体',
+    `status`       VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '状态: PENDING/SENT',
+    `retry_count`  INT          NOT NULL DEFAULT 0 COMMENT '重试次数',
+    `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `sent_at`      DATETIME              DEFAULT NULL COMMENT '发送时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_outbox_msg_id` (`msg_id`),
+    KEY `idx_outbox_status` (`status`),
+    KEY `idx_outbox_created` (`created_at`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci COMMENT ='本地消息表';
+
+-- -----------------------------------------------------------------------------
 -- 站内消息表
 -- 枚举落库为数字编码（Java 枚举带 @EnumValue）：
 --   type        : 101/102 系统类、201~207 订单类、301~305 资金类、401 车辆类
@@ -401,6 +433,7 @@ CREATE TABLE IF NOT EXISTS `message`
     `update_time` DATETIME              DEFAULT NULL COMMENT '更新时间',
     `deleted`     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '逻辑删除：0 正常 / 1 已删除',
     PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_message_order_type` (`order_id`, `type`),
     KEY `idx_message_user` (`user_id`, `read_status`),
     KEY `idx_message_order` (`order_id`),
     KEY `idx_message_type` (`type`),

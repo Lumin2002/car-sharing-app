@@ -90,12 +90,14 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST,
                                 "/api/pay/wechat/payment-notify",
                                 "/api/pay/wechat/refund-notify").permitAll()
-                        // 上传后的静态资源需要匿名可读，否则 <img> 加载不出来
-                        // （前缀取自 app.upload.url-prefix，改配置时这里会自动跟着变）
+                        // 证件照业务目录（实名/驾照）必须先认证；
+                        // /uploads/** 规则之前，Spring Security 按声明顺序匹配。
+                        .requestMatchers(HttpMethod.GET,
+                                uploadProperties.getUrlPrefix() + "/realname/**",
+                                uploadProperties.getUrlPrefix() + "/license/**").authenticated()
+                        // 上传后的普通静态资源匿名可读，
                         .requestMatchers(HttpMethod.GET,
                                 uploadProperties.getUrlPrefix() + "/**").permitAll()
-                        // 证件等上传图片信息需登录后鉴权访问
-                        .requestMatchers(uploadProperties.getUrlPrefix() + "/kyc/**").authenticated()
                         // 健康检查与运行指标（探针 / 监控用），匿名可访问
                         .requestMatchers(
                                 "/actuator/health",
@@ -120,6 +122,7 @@ public class SecurityConfig {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
         provider.setUserDetailsService(userDetailsService);
         provider.setPasswordEncoder(passwordEncoder);
+        provider.setHideUserNotFoundExceptions(true);
         return provider;
     }
 }

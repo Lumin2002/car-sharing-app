@@ -9,4 +9,6 @@ public class SendSmsCodeDTO {
     private String phone;
     private String imageCode;
     private String imageUuid;
+    @NotBlank(message = "消息类型不能为空")
+    private String type;
 }

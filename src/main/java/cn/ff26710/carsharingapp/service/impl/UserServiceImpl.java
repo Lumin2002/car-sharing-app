@@ -60,6 +60,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException("用户不存在");
         }
     }
+
+    @Override
+    public void updateAvatar(String avatarUrl) {
+        User loginUser = SecurityUtil.getLoginUser();
+        if (loginUser == null) {
+            throw new BusinessException(401, "未登录");
+        }
+        boolean success = lambdaUpdate()
+                .eq(User::getUserId, loginUser.getUserId())
+                .set(User::getAvatar, avatarUrl)
+                .update();
+        if (!success) {
+            throw new BusinessException("头像更新失败");
+        }
+    }
+
     @Override
     public void banUser(Long userId, UserStatus status) {
         if (status != UserStatus.ENABLED && status != UserStatus.DISABLED){

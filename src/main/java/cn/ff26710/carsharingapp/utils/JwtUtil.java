@@ -1,10 +1,12 @@
 package cn.ff26710.carsharingapp.utils;
 
+import cn.ff26710.carsharingapp.config.JwtConfig;
 import cn.ff26710.carsharingapp.entity.enums.UserRole;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -14,19 +16,13 @@ import java.util.Date;
 import java.util.UUID;
 
 @Component
+@RequiredArgsConstructor
 public class JwtUtil {
-    private final SecretKey key;
-    private final long expireHours;
-
-    public JwtUtil(@Value("${jwt.secret}") String secret,
-                            @Value("${jwt.expire-hours:2}") long expireHours) {
-        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.expireHours = expireHours;
-    }
+    private final JwtConfig jwtConfig;
 
     public String generateToken(Long userId, UserRole role, Integer userVersion) {
         Date now = new Date();
-        Date expiry = new Date(now.getTime() + expireHours * 3600_000L);
+        Date expiry = new Date(now.getTime() + jwtConfig.jwtExpireHours() * 3600_000L);
         String jti = UUID.randomUUID().toString();
         return Jwts.builder()
                 .setId(jti)
@@ -35,13 +31,13 @@ public class JwtUtil {
                 .claim("userVersion", userVersion)
                 .setIssuedAt(now)
                 .setExpiration(expiry)
-                .signWith(key)
+                .signWith(jwtConfig.jwtSecretKey())
                 .compact();
     }
 
     public Claims parseToken(String token) throws JwtException, IllegalArgumentException {
         return Jwts.parserBuilder()
-                .setSigningKey(key)
+                .setSigningKey(jwtConfig.jwtSecretKey())
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
@@ -64,6 +60,6 @@ public class JwtUtil {
         return claims.getId();
     }
     public Long getExpireHours() {
-        return expireHours;
+        return jwtConfig.jwtExpireHours();
     }
 }

@@ -45,7 +45,7 @@ public class AuthController {
 
     @PostMapping("/sendSmsCode")
     public ResultVO<Void> sendSmsCode(@Valid @RequestBody SendSmsCodeDTO dto) {
-        captchaService.sendSmsCode(dto.getPhone(), dto.getImageCode(), dto.getImageUuid());
+        captchaService.sendSmsCode(dto.getPhone(), dto.getImageCode(), dto.getImageUuid(), dto.getType());
         return ResultVO.success();
     }
 

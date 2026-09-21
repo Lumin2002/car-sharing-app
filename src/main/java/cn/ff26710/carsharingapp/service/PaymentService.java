@@ -19,4 +19,5 @@ public interface PaymentService extends IService<Payment> {
     void markRefunded(Long paymentId);
 
     void handleWxPayCallback(String paymentNo, String wxTradeNo, Integer amountCent, String rawCallback);
+    void markPaymentFailed(Long paymentId, String tradeState);
 }

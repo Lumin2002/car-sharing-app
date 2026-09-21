@@ -2,7 +2,6 @@ package cn.ff26710.carsharingapp.utils;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationAdapter;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.concurrent.LinkedBlockingQueue;

@@ -1,6 +1,7 @@
 package cn.ff26710.carsharingapp.service.impl;
 
 import cn.ff26710.carsharingapp.service.SmsService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -8,6 +9,7 @@ import java.util.Map;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class MockSmsServiceImpl implements SmsService {
     @Override
     public void sendCode(String phone, Map<String, String> templateParam) {

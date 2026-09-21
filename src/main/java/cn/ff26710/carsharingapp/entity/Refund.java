@@ -35,4 +35,8 @@ public class Refund {
     private LocalDateTime callbackTime;
 
     private String rawCallback;
+
+    private String failReason;
+    private Integer retryCount;
+    private LocalDateTime nextRetryTime;
 }

@@ -17,10 +17,12 @@ import com.wechat.pay.java.service.payments.jsapi.model.Amount;
 import com.wechat.pay.java.service.payments.jsapi.model.Payer;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayRequest;
 import com.wechat.pay.java.service.payments.jsapi.model.PrepayResponse;
+import com.wechat.pay.java.service.payments.jsapi.model.QueryOrderByOutTradeNoRequest;
 import com.wechat.pay.java.service.payments.model.Transaction;
 import com.wechat.pay.java.service.refund.RefundService;
 import com.wechat.pay.java.service.refund.model.AmountReq;
 import com.wechat.pay.java.service.refund.model.CreateRequest;
+import com.wechat.pay.java.service.refund.model.QueryByOutRefundNoRequest;
 import com.wechat.pay.java.service.refund.model.RefundNotification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -75,6 +77,21 @@ public class WeChatPayServiceImpl implements WeChatPayService {
     }
 
     @Override
+    public PaymentQueryResult queryPayment(String outTradeNo) {
+        JsapiService jsapiService = jsapiServiceProvider.getIfAvailable();
+        if (jsapiService == null) {
+            throw new BusinessException("微信支付未启用，请使用其它支付方式");
+        }
+        QueryOrderByOutTradeNoRequest request = new QueryOrderByOutTradeNoRequest();
+        request.setOutTradeNo(outTradeNo);
+
+        Transaction transaction = jsapiService.queryOrderByOutTradeNo(request);
+        Integer amountCent = transaction.getAmount() == null ? null : transaction.getAmount().getTotal();
+        String tradeState = transaction.getTradeState() == null ? null : transaction.getTradeState().name();
+        return new PaymentQueryResult(transaction.getTransactionId(), amountCent, tradeState);
+    }
+
+    @Override
     public void refund(String paymentNo, String refundNo, String reason,
                        BigDecimal refundAmount, BigDecimal orderAmount) {
         RefundService refundService = refundServiceProvider.getIfAvailable();
@@ -93,6 +110,22 @@ public class WeChatPayServiceImpl implements WeChatPayService {
         amountReq.setCurrency("CNY");
         request.setAmount(amountReq);
         refundService.create(request);
+    }
+
+    @Override
+    public RefundQueryResult queryRefund(String outRefundNo) {
+        RefundService refundService = refundServiceProvider.getIfAvailable();
+        if (refundService == null) {
+            throw new BusinessException("微信支付退款未启用，请使用其它支付方式");
+        }
+        QueryByOutRefundNoRequest request = new QueryByOutRefundNoRequest();
+        request.setOutRefundNo(outRefundNo);
+
+        com.wechat.pay.java.service.refund.model.Refund result =
+                refundService.queryByOutRefundNo(request);
+        Long amountCent = result.getAmount() == null ? null : result.getAmount().getRefund();
+        String status = result.getStatus() == null ? null : result.getStatus().name();
+        return new RefundQueryResult(result.getRefundId(), amountCent, status);
     }
 
     @Override

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 /**
@@ -123,6 +124,32 @@ class CarStoreQueryIntegrationTest extends IntegrationTestBase {
         JsonNode res = getJson("/api/car/" + car.getCarId() + "/attributes", null);
         assertThat(res.path("data").path("batteryCapacity").asInt()).isEqualTo(60);
         assertThat(res.path("data").has("deleted")).isFalse();
+    }
+
+    @Test
+    @DisplayName("软删车辆后可重新登记同一 VIN 和车牌")
+    void deletedCarCanBeRecreatedWithSameVinAndPlate() throws Exception {
+        Store store = createStore();
+        Car car = createFreeCar(store.getStoreId(), "100.00", "500.00");
+        var admin = createAdmin();
+        String token = login(admin.phone(), admin.password());
+
+        car.setStatus(CarStatus.DISABLED);
+        carMapper.updateById(car);
+
+        JsonNode removed = toJson(perform(withToken(
+                delete("/api/car/" + car.getCarId()), token)));
+        assertThat(removed.path("code").asInt()).isEqualTo(200);
+
+        JsonNode recreated = postJson("/api/car", new java.util.HashMap<>() {{
+            put("vin", car.getVin());
+            put("plateNo", car.getPlateNo());
+            put("brand", "测试品牌");
+            put("dailyPrice", "100.00");
+            put("deposit", "500.00");
+            put("storeId", store.getStoreId());
+        }}, token);
+        assertThat(recreated.path("code").asInt()).isEqualTo(200);
     }
 
     private JsonNode putJsonWithBody(String url, Object body, String token) throws Exception {

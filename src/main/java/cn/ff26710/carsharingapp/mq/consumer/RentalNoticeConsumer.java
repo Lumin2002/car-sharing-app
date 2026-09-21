@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
@@ -60,6 +61,10 @@ public class RentalNoticeConsumer {
                     event.getTitle(), event.getContent(), event.getMessageType());
 
             log.info("[{}]订单 {} 已生成站内消息: {}", scene, event.getOrderNo(), event.getTitle());
+            channel.basicAck(tag, false);
+        } catch (DuplicateKeyException e) {
+            log.info("[{}]订单 {} 的 {} 消息已由唯一键拦截，跳过重复投递",
+                    scene, event.getOrderNo(), event.getMessageType());
             channel.basicAck(tag, false);
         } catch (Exception e) {
             log.error("[{}]消费失败，消息转入死信队列: {}", scene, event, e);

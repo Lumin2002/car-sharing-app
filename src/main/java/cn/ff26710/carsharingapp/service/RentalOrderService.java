@@ -4,6 +4,7 @@ import cn.ff26710.carsharingapp.dto.rental.RentalCreateDTO;
 import cn.ff26710.carsharingapp.dto.rental.RentalPickUpDTO;
 import cn.ff26710.carsharingapp.dto.rental.RentalReturnDTO;
 import cn.ff26710.carsharingapp.entity.RentalOrder;
+import cn.ff26710.carsharingapp.entity.enums.PayType;
 import cn.ff26710.carsharingapp.entity.enums.RentalStatus;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.service.IService;

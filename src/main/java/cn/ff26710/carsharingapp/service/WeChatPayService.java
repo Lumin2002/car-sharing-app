@@ -17,10 +17,22 @@ public interface WeChatPayService {
     Map<String, String> createJsapiPrepay(String paymentNo, BigDecimal amount,
                                           String description, String openId);
 
+    /** 查询微信支付单当前状态。 */
+    PaymentQueryResult queryPayment(String outTradeNo);
+
     /** 发起微信退款。 */
     void refund(String paymentNo, String refundNo, String reason,
                 BigDecimal refundAmount, BigDecimal orderAmount);
 
+    /** 查询微信退款单当前状态。 */
+    RefundQueryResult queryRefund(String outRefundNo);
+
     /** 解析并分发微信支付/退款回调，返回微信要求的应答体。 */
     Map<String, String> handleCallback(WxPayCallbackDTO dto);
+
+    record RefundQueryResult(String wxRefundNo, Long amountCent, String status) {
+    }
+
+    record PaymentQueryResult(String wxTradeNo, Integer amountCent, String tradeState) {
+    }
 }

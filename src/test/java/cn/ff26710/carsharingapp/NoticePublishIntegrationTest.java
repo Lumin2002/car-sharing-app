@@ -25,7 +25,7 @@ import static org.mockito.Mockito.verify;
  *
  * <p>生产者被打成 mock（见 IntegrationTestBase），所以这里不依赖 RabbitMQ，
  * 只断言「发了什么事件」。事件真正落成站内消息的链路由消费者负责，
- * 需要真实 broker，属于人工/联调验证范围。
+ * 需要真实 callback，属于人工/联调验证范围。
  */
 @DisplayName("MQ 事件生产")
 class NoticePublishIntegrationTest extends IntegrationTestBase {

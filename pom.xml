@@ -59,6 +59,18 @@
             <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
             <version>${mybatis.plus.version}</version>
         </dependency>
+        <!-- shedlock核心 -->
+        <dependency>
+            <groupId>net.javacrumbs.shedlock</groupId>
+            <artifactId>shedlock-spring</artifactId>
+            <version>5.13.0</version>
+        </dependency>
+        <!-- Redis provider，锁存在Redis -->
+        <dependency>
+            <groupId>net.javacrumbs.shedlock</groupId>
+            <artifactId>shedlock-provider-redis-spring</artifactId>
+            <version>5.13.0</version>
+        </dependency>
         <dependency>
             <groupId>com.github.xiaoymin</groupId>
             <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>

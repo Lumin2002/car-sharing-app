@@ -117,6 +117,8 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
         order.setDailyPrice(dailyPrice);
         order.setDeposit(deposit);
         order.setRentDays(rentDays);
+        order.setPaidRent(BigDecimal.ZERO);
+        order.setPaidDeposit(BigDecimal.ZERO);
         order.setRentAmount(rentAmount);
         order.setTotalAmount(rentAmount.add(deposit));
         order.setStatus(RentalStatus.PENDING);
@@ -153,7 +155,8 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
                 || !realnameAuthService.isPassed(loginuser.getUserId())) {
             throw new BusinessException("请完成驾照认证和实名认证后再取车");
         }
-        if (!paymentService.isPaid(orderId, PayType.RENT_PAY)) {
+        if (!paymentService.isPaid(orderId, PayType.RENT_PAY)
+                && order.getDeposit().compareTo(BigDecimal.ZERO) != 0) {
             throw new BusinessException("请支付订单租金后再取车");
         }
         if (order.getDeposit().compareTo(BigDecimal.ZERO) > 0
@@ -183,10 +186,7 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
         }
 
         LocalDateTime now = LocalDateTime.now();
-        int rentDays = calcRentDays(order.getStartTime(), now);
-
         order.setActualReturnTime(now);
-        order.setRentDays(rentDays);
         order.setStatus(RentalStatus.RETURNED);
         order.setMileageAfter(dto.getMileageAfter());
         if (dto.getRemark() != null) {
@@ -424,7 +424,17 @@ public class RentalOrderServiceImpl extends ServiceImpl<RentalOrderMapper, Renta
         if (minutes <= 0) {
             return 1;
         }
-        return (int) Math.max(1, (minutes + 1439) / 1440);
+        final long dayMin = 1440;          // 一天 1440分钟
+        final long graceMin = 4 * 60;      // 4小时临界值
+        final long oneDayMaxMin = dayMin + graceMin; // 28小时 1680分钟
+
+        if (minutes <= oneDayMaxMin) {
+            // 28小时以内，统一算1天
+            return 1;
+        }
+        // 超过28小时：向上取整天数，只要多1分钟也要多算一天
+        // (总分钟 +1439)/1440 向上取整
+        return (int) ((minutes + dayMin - 1) / dayMin);
     }
 
     private String generateOrderNo() {

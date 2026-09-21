@@ -29,9 +29,12 @@ public class RentalOrder extends BaseLogicEntity {
     private BigDecimal dailyPrice;
     private BigDecimal deposit;
     private Integer rentDays;
+
+    private BigDecimal paidRent;
+    private BigDecimal paidDeposit;
+
     private BigDecimal rentAmount;
     private BigDecimal totalAmount;
-
     private RentalStatus status;
 
     private Integer mileageBefore;

@@ -20,6 +20,8 @@ spring:
     virtual-host: /
     publisher-confirm-type: correlated
     publisher-returns: true
+    template:
+      mandatory: true
     listener:
       simple:
         acknowledge-mode: manual
@@ -31,7 +33,6 @@ spring:
       max-request-size: 10MB
 
 mybatis-plus:
-  mapper-locations: classpath:mapper/**/*.xml
   type-aliases-package: cn.ff26710.carsharingapp.entity
   configuration:
     map-underscore-to-camel-case: true
@@ -56,12 +57,13 @@ app:
     max-size: 5MB                         # 单文件上限，与 multipart 配置保持一致
     allowed-extensions: jpg,jpeg,png,webp,gif
   rental:
-    free-mileage-per-day: 200       # 每天免费里程（km）
-    exceed-mileage-fee: 1.50        # 超出部分单价（元/km）
-    overtime-fee-per-hour: 30       # 超时单价（元/小时，不足一小时按一小时）
-    overtime-grace-minutes: 30      # 超时宽限（分钟，不收费）
-    cancel-grace-minutes: 10        # 取消宽限（分钟，宽限内取消不扣费）
-    expire-warn-hours: 6            # 到期前多少小时发「即将到期」提醒
+    free-mileage-per-day: 200        # 每天免费里程（km）
+    exceed-mileage-fee: 1.50         # 超出部分单价（元/km）
+    overtime-fee-per-hour: 30        # 超时单价（元/小时，不足一小时按一小时）
+    overtime-max-charge-minutes: 240 # 单日超时最大时间（分钟，默认四小时）
+    overtime-grace-minutes: 30       # 超时宽限（分钟，不收费）
+    cancel-grace-minutes: 10         # 取消宽限（分钟，宽限内取消不扣费）
+    expire-warn-hours: 6             # 到期前多少小时发「即将到期」提醒
 
 logging:
   logback:

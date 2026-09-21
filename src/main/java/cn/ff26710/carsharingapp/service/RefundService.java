@@ -20,4 +20,7 @@ public interface RefundService extends IService<Refund> {
     boolean isRefunded(Long orderId, RefundType refundType);
 
     void handleWxPayCallback(String paymentNo, String wxTradeNo, Long amountCent, String rawCallback);
+    void markRefundFailed(Long refundId, String reason);
+    void markRefundProcessing(Long refundId);
+    void markTerminalFailed(Long refundId, String reason);
 }

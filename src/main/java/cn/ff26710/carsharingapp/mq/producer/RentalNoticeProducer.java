@@ -1,26 +1,30 @@
 package cn.ff26710.carsharingapp.mq.producer;
 
-import cn.ff26710.carsharingapp.annotation.PublishMQAfterCommit;
 import cn.ff26710.carsharingapp.config.RabbitMQConfig;
-import cn.ff26710.carsharingapp.mq.MQEventHolder;
 import cn.ff26710.carsharingapp.mq.event.RentalNoticeEvent;
-import lombok.extern.slf4j.Slf4j;
+import cn.ff26710.carsharingapp.service.OutboxService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class RentalNoticeProducer {
 
-    @PublishMQAfterCommit
+    private final OutboxService outboxService;
+
     public void publish(RentalNoticeEvent event) {
-        MQEventHolder.add(
+        outboxService.append(
                 RabbitMQConfig.RENTAL_EXCHANGE,
-                RabbitMQConfig.ROUTING_NOTICE, event);
+                RabbitMQConfig.ROUTING_NOTICE,
+                event,
+                event.getOrderNo());
     }
 
-    @PublishMQAfterCommit
     public void publishOverdue(RentalNoticeEvent event) {
-        MQEventHolder.add(
+        outboxService.append(
                 RabbitMQConfig.RENTAL_EXCHANGE,
-                RabbitMQConfig.ROUTING_OVERDUE, event);
+                RabbitMQConfig.ROUTING_OVERDUE,
+                event,
+                event.getOrderNo());
     }
 }
